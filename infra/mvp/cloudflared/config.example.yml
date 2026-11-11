@@ -1,0 +1,15 @@
+# 로컬 관리(locally-managed) 터널을 쓸 때의 예시. 기본 구성은 토큰 기반 원격 관리 터널이라 이 파일이 필요 없다.
+# 사용 시: cp config.example.yml config.yml (config.yml과 자격증명 JSON은 .gitignore 대상)
+#   cloudflared tunnel login
+#   cloudflared tunnel create etf-agent-api            # <TUNNEL_ID>.json 자격증명 생성
+#   cloudflared tunnel route dns etf-agent-api api.example.com
+tunnel: <TUNNEL_ID>
+credentials-file: /etc/cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  # compose 네트워크 안의 api 서비스로 전달
+  - hostname: api.example.com
+    service: http://api:8000
+    originRequest:
+      connectTimeout: 10s
+  - service: http_status:404

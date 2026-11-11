@@ -1,0 +1,23 @@
+# 설치: uv tool install pre-commit && pre-commit install   (또는 make setup)
+# 전체 실행: pre-commit run --all-files
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.4  # apps/api의 ruff 버전과 맞춘다
+    hooks:
+      # 설정은 apps/api/pyproject.toml을 쓴다
+      - id: ruff-check
+        args: [--fix, --config, apps/api/pyproject.toml]
+      - id: ruff-format
+        args: [--config, apps/api/pyproject.toml]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

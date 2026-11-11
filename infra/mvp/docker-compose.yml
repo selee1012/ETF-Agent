@@ -1,0 +1,82 @@
+# MVP 런타임: EC2에서 `api` + `cloudflared`, 로컬은 `--profile dev`로 postgres를 추가한다.
+# 사용: 루트에서 make dev / make down (직접 실행 시 --env-file .env 필요)
+name: etf-agent
+
+services:
+  api:
+    build:
+      context: ../../apps/api
+    image: etf-agent-api:local
+    env_file:
+      - path: ../../.env
+        required: true
+    ports:
+      # 외부 노출은 cloudflared가 담당하므로 호스트 루프백에만 바인딩한다.
+      - "127.0.0.1:8000:8000"
+    extra_hosts:
+      # 호스트에서 네이티브로 도는 Ollama 접근용(리눅스 EC2 포함)
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.7
+    command: tunnel --no-autoupdate run
+    environment:
+      # Zero Trust 대시보드에서 발급한 원격 관리 터널 토큰. ingress는 대시보드에서 http://api:8000 으로 설정
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------- dev 프로필 ----------
+  postgres:
+    profiles: ["dev"]
+    image: pgvector/pgvector:0.8.7-pg17-trixie
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # 선택: 컨테이너 Ollama (make dev-llm). GPU 없는 맥에서는 네이티브 Ollama가 훨씬 빠르다.
+  ollama:
+    profiles: ["ollama"]
+    image: ollama/ollama:0.40.16
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  ollama:

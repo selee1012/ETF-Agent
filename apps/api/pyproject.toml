@@ -1,0 +1,60 @@
+[project]
+name = "etf-agent-api"
+version = "0.1.0"
+description = "ETF 질의응답 AI Agent API"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "alembic==1.20.1",
+    "asyncpg==0.32.0",
+    "boto3==1.44.0",
+    "cachetools==8.0.0",
+    "fastapi==0.162.4",
+    "httpx==0.28.1",
+    "langgraph==1.2.20",
+    "openai==3.49.0",
+    "pgvector==0.5.1",
+    "pydantic-settings==2.16.2",
+    "pyjwt[crypto]==2.15.1",
+    "pymupdf==2.1",
+    "sqlalchemy[asyncio]==2.1.8",
+    "sse-starlette==3.7.0",
+    "structlog==26.1.0",
+    "uvicorn[standard]==0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.2.0",
+    "pytest-asyncio==1.4.1.post1",
+    "ruff==0.17.4",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes, I: import 정렬, B: bugbear, UP: pyupgrade, ASYNC: async 함정, S: bandit
+select = ["E", "W", "F", "I", "B", "UP", "ASYNC", "S", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = [
+    # langsmith pytest 플러그인(langgraph 의존성)의 서드파티 경고
+    "ignore::DeprecationWarning:langsmith.*",
+]

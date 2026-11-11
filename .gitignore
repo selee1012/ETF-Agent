@@ -1,0 +1,52 @@
+# --- 비밀값 ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+infra/mvp/cloudflared/config.yml
+infra/mvp/cloudflared/*.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Node / Web ---
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+coverage/
+npm-debug.log*
+
+# --- 빌드 산출물 ---
+build/
+*.tsbuildinfo
+
+# --- 모델 파일·학습 산출물 ---
+*.gguf
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.bin
+ml/**/checkpoints/
+ml/**/outputs/
+ml/**/runs/
+models/
+
+# --- OS / 에디터 ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
