@@ -1,0 +1,122 @@
+# 로컬 개발 스택: db(Postgres + pgvector + pg_trgm), api(FastAPI 리로드), web(Vite dev server).
+# 사용: 루트에서 make up / make down. 직접 실행 시 --env-file .env 필요.
+# LLM은 맥 GPU 가속을 위해 호스트 Ollama를 기본으로 쓴다(LLM_BASE_URL=http://host.docker.internal:11434/v1).
+# 그 밖의 OS는 --profile ollama로 컨테이너 Ollama를 띄우고 LLM_BASE_URL=http://ollama:11434/v1 로 바꾼다.
+name: etf-agent
+
+services:
+  db:
+    image: pgvector/pgvector:0.8.7-pg17-trixie
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-etf}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_DB: ${POSTGRES_DB:-etf_agent}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    networks:
+      default:
+        # 예전 .env의 DATABASE_URL(@postgres:5432)도 그대로 동작하게 한다.
+        aliases: [postgres]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    image: etf-agent-api:local
+    env_file:
+      - path: ../../.env
+        required: true
+    environment:
+      # 셸에서 덮어쓸 수 있게 한다(예: LLM_PROVIDER=fake make up). 비우면 settings 기본값.
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
+      STORAGE_LOCAL_DIR: /data/storage
+    # 개발 모드: 레포 전체를 마운트하고 app 디렉터리 변경 시 자동 리로드
+    command:
+      - uvicorn
+      - app.main:create_app
+      - --factory
+      - --host=0.0.0.0
+      - --port=8000
+      - --reload
+      - --reload-dir=/workspace/apps/api/app
+      - --reload-dir=/workspace/prompts
+      - --reload-include=*.yaml
+      - --reload-include=*.md
+    volumes:
+      - ../..:/workspace
+      - storage:/data/storage
+    ports:
+      - "127.0.0.1:8000:8000"
+    extra_hosts:
+      # 호스트에서 도는 Ollama 접근용(리눅스 포함)
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 6
+    restart: unless-stopped
+
+  web:
+    image: node:24-trixie-slim
+    working_dir: /app
+    # 호스트 node_modules(macOS 바이너리)와 섞이지 않도록 컨테이너 전용 볼륨을 쓴다.
+    command: ["sh", "-c", "npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 5173"]
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+      VITE_AUTH_MODE: ${VITE_AUTH_MODE:-local}
+    volumes:
+      - ../../apps/web:/app
+      - web_node_modules:/app/node_modules
+    ports:
+      - "127.0.0.1:5173:5173"
+    depends_on:
+      api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 120s
+      retries: 6
+    restart: unless-stopped
+
+  # 선택: 컨테이너 Ollama (맥이 아닌 OS용). 큰 모델은 자동으로 받지 않는다 → make pull-models
+  ollama:
+    profiles: ["ollama"]
+    image: ollama/ollama:0.40.16
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+      - ./ollama:/modelfiles:ro
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  storage:
+  web_node_modules:
+  ollama:

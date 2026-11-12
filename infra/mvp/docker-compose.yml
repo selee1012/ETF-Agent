@@ -5,7 +5,8 @@ name: etf-agent
 services:
   api:
     build:
-      context: ../../apps/api
+      context: ../..
+      dockerfile: apps/api/Dockerfile
     image: etf-agent-api:local
     env_file:
       - path: ../../.env

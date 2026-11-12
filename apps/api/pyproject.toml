@@ -7,18 +7,20 @@ requires-python = ">=3.14,<3.15"
 dependencies = [
     "alembic==1.20.1",
     "asyncpg==0.32.0",
-    "boto3==1.44.0",
     "cachetools==8.0.0",
     "fastapi==0.162.4",
     "httpx==0.28.1",
     "langgraph==1.2.20",
     "openai==3.49.0",
     "pgvector==0.5.1",
+    "prometheus-client==0.26.0",
     "pydantic-settings==2.16.2",
     "pyjwt[crypto]==2.15.1",
     "pymupdf==2.1",
+    "python-multipart==0.0.33",
+    "pyyaml==6.0.3",
+    "rapidfuzz==3.14.6",
     "sqlalchemy[asyncio]==2.1.8",
-    "sse-starlette==3.7.0",
     "structlog==26.1.0",
     "uvicorn[standard]==0.54.0",
 ]
@@ -40,18 +42,20 @@ target-version = "py314"
 [tool.ruff.lint]
 # E/W: pycodestyle, F: pyflakes, I: import 정렬, B: bugbear, UP: pyupgrade, ASYNC: async 함정, S: bandit
 select = ["E", "W", "F", "I", "B", "UP", "ASYNC", "S", "SIM", "RUF"]
+# E501: 코드 줄은 formatter가 맞추고, 한글 주석·문서열은 폭 계산(전각=2) 때문에 오탐이 많아 끈다.
+ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["app"]
+known-first-party = ["app", "jobs", "ml"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
-pythonpath = ["."]
+pythonpath = [".", "../.."]
 testpaths = ["tests"]
 addopts = "-ra"
 filterwarnings = [

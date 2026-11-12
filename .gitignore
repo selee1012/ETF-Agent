@@ -50,3 +50,6 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# --- 로컬 저장소(STORAGE_PROVIDER=local 기본 경로) ---
+var/

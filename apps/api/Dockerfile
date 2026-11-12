@@ -1,4 +1,6 @@
 # syntax=docker/dockerfile:1.7
+# 빌드 컨텍스트는 레포 루트다(prompts·jobs·data·ml·scripts를 함께 담는다).
+#   docker build -f apps/api/Dockerfile .
 
 ARG PYTHON_VERSION=3.14
 ARG UV_VERSION=0.13.7
@@ -12,24 +14,32 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never \
     UV_PROJECT_ENVIRONMENT=/opt/venv
-WORKDIR /app
+WORKDIR /build
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=apps/api/pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=apps/api/uv.lock,target=uv.lock \
     uv sync --locked --no-dev --no-install-project
 
-# ---------- runtime: 가상환경과 소스만 복사, non-root ----------
+# ---------- runtime: 레포와 같은 디렉터리 구조(/workspace), non-root ----------
 FROM python:${PYTHON_VERSION}-slim-trixie AS runtime
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/workspace/apps/api:/workspace
 RUN groupadd --system --gid 10001 app \
-    && useradd --system --uid 10001 --gid app --home-dir /app --shell /usr/sbin/nologin app
-WORKDIR /app
+    && useradd --system --uid 10001 --gid app --home-dir /workspace --shell /usr/sbin/nologin app \
+    && mkdir -p /data/storage && chown app:app /data/storage
 COPY --from=builder /opt/venv /opt/venv
-COPY --chown=app:app alembic.ini ./
-COPY --chown=app:app migrations ./migrations
-COPY --chown=app:app app ./app
+WORKDIR /workspace
+COPY --chown=app:app prompts ./prompts
+COPY --chown=app:app data ./data
+COPY --chown=app:app jobs ./jobs
+COPY --chown=app:app ml ./ml
+COPY --chown=app:app scripts ./scripts
+COPY --chown=app:app apps/api/alembic.ini apps/api/alembic.ini
+COPY --chown=app:app apps/api/migrations apps/api/migrations
+COPY --chown=app:app apps/api/app apps/api/app
+WORKDIR /workspace/apps/api
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \

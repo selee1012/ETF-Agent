@@ -1,11 +1,19 @@
-"""환경변수 기반 애플리케이션 설정. 모든 설정값은 이 모듈에서만 읽는다."""
+"""환경변수 기반 애플리케이션 설정. 모든 설정값은 이 모듈에서만 읽는다.
 
+어댑터(LLM·인증·저장소·트레이서)는 여기의 Enum 값으로만 고른다(공통 규칙 3).
+"""
+
+import secrets
 from enum import StrEnum
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# apps/api/app/settings.py → 레포 루트. 컨테이너도 /workspace에 같은 구조로 둔다.
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class AppEnv(StrEnum):
@@ -22,28 +30,35 @@ class LogLevel(StrEnum):
 
 
 class LLMProvider(StrEnum):
-    OPENAI_COMPAT = "openai_compat"
-    FAKE = "fake"
+    OPENAI_COMPAT = "openai_compat"  # Ollama(/v1), 나중에 vLLM도 같은 클라이언트
+    FAKE = "fake"  # 테스트·키 없는 환경
 
 
 class FallbackProvider(StrEnum):
-    BEDROCK = "bedrock"
     NONE = "none"
+    BEDROCK = "bedrock"  # Phase 1 배포에서 구현(llm/router.py 자리만 있음)
 
 
 class AuthProvider(StrEnum):
-    SUPABASE = "supabase"
-    COGNITO = "cognito"
+    LOCAL = "local"  # 개발용 dev-login JWT
+    SUPABASE = "supabase"  # 스텁
+    COGNITO = "cognito"  # 스텁
+
+
+class AdminAuth(StrEnum):
+    LOCAL = "local"  # local JWT의 role=admin
+    CF_ACCESS = "cf_access"  # 스텁
 
 
 class StorageProvider(StrEnum):
-    SUPABASE = "supabase"
-    S3 = "s3"
+    LOCAL = "local"
+    SUPABASE = "supabase"  # 스텁
+    S3 = "s3"  # 스텁
 
 
 class Tracer(StrEnum):
     PG = "pg"
-    LANGFUSE = "langfuse"
+    LANGFUSE = "langfuse"  # 스텁
 
 
 # 쉼표로 구분된 환경변수 값을 리스트로 받는다(JSON 디코딩 비활성화).
@@ -68,40 +83,69 @@ class Settings(BaseSettings):
     # --- DB (필수) ---
     database_url: str
 
-    # --- Supabase Auth ---
+    # --- 인증 ---
+    auth_provider: AuthProvider = AuthProvider.LOCAL
+    admin_auth: AdminAuth = AdminAuth.LOCAL
+    # local JWT 서명 키. 비우면 local 환경에서만 프로세스마다 임의 생성(재시작 시 재로그인 필요)
+    local_jwt_secret: SecretStr | None = None
+    local_jwt_ttl_minutes: int = Field(default=60 * 12, gt=0)
+    # dev-login 시 role=admin을 받을 이메일(쉼표 구분)
+    admin_emails: CommaList = Field(default_factory=lambda: ["admin@local.test"])
+    # Supabase Auth (스텁에서 사용 예정)
     supabase_url: str | None = None
     supabase_jwks_url: str | None = None
     supabase_jwt_secret: SecretStr | None = None
+    # Cognito (스텁에서 사용 예정)
+    cognito_user_pool_id: str | None = None
+    cognito_region: str = "ap-northeast-2"
+    # Cloudflare Access (스텁에서 사용 예정)
+    cf_access_team_domain: str | None = None
+    cf_access_aud: str | None = None
 
     # --- LLM ---
     llm_provider: LLMProvider = LLMProvider.OPENAI_COMPAT
-    llm_base_url: str = "http://localhost:11434/v1"
+    llm_base_url: str = "http://host.docker.internal:11434/v1"
     llm_api_key: SecretStr | None = None
-    llm_model: str = "qwen3:8b"
-    judge_model: str = "qwen3:8b"
+    llm_model: str = "midm-2.0-mini"
+    judge_model: str | None = None  # 비우면 llm_model과 같음
+    llm_timeout_seconds: float = Field(default=60.0, gt=0)
+    llm_max_tokens: int = Field(default=800, gt=0)
+    llm_temperature: float = Field(default=0.2, ge=0, le=2)
+    # 임베딩: 비우면 llm_provider를 따른다
+    embedding_provider: LLMProvider | None = None
+    embedding_base_url: str | None = None  # 비우면 llm_base_url
     embedding_model: str = "bge-m3"
     embedding_dim: int = Field(default=1024, gt=0)
 
-    # --- LLM 폴백 ---
-    fallback_provider: FallbackProvider = FallbackProvider.BEDROCK
+    # --- LLM 폴백 (Phase 1 배포에서 구현) ---
+    fallback_provider: FallbackProvider = FallbackProvider.NONE
     bedrock_region: str = "ap-northeast-2"
     bedrock_model_id: str | None = None
     fallback_allowed_intents: CommaList = Field(default_factory=lambda: ["faq"])
 
     # --- 어댑터 선택 ---
-    auth_provider: AuthProvider = AuthProvider.SUPABASE
-    storage_provider: StorageProvider = StorageProvider.SUPABASE
+    storage_provider: StorageProvider = StorageProvider.LOCAL
+    storage_local_dir: Path = REPO_ROOT / "var" / "storage"
     tracer: Tracer = Tracer.PG
 
-    # --- Cloudflare Access ---
-    cf_access_team_domain: str | None = None
-    cf_access_aud: str | None = None
+    # --- 에이전트 ---
+    prompts_dir: Path = REPO_ROOT / "prompts"
+    history_turns: int = Field(default=4, ge=0)
+    stream_token_delay_ms: int = Field(
+        default=0, ge=0
+    )  # 토큰 이벤트 사이 지연(타이핑 효과)  # 멀티턴: 최근 N턴(질문+답변 쌍)
+    rag_top_k: int = Field(default=4, gt=0)
+    rag_vector_weight: float = Field(default=0.7, ge=0, le=1)
+    rag_min_score: float = Field(default=0.25, ge=0, le=1)
+    entity_fuzzy_threshold: int = Field(default=80, ge=0, le=100)
+    inquiry_channel: str = "고객센터(샘플) 1588-0000 · 홈페이지 1:1 문의"
 
     # --- 외부 데이터 API ---
     data_go_kr_api_key: SecretStr | None = None
     dart_api_key: SecretStr | None = None
+    external_timeout_seconds: float = Field(default=15.0, gt=0)
 
-    @field_validator("cors_origins", "fallback_allowed_intents", mode="before")
+    @field_validator("cors_origins", "fallback_allowed_intents", "admin_emails", mode="before")
     @classmethod
     def _split_commas(cls, value: object) -> object:
         if isinstance(value, str):
@@ -116,11 +160,25 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def _derive_jwks_url(self) -> Settings:
+    def _derive_defaults(self) -> Settings:
         if self.supabase_jwks_url is None and self.supabase_url:
             base = self.supabase_url.rstrip("/")
             self.supabase_jwks_url = f"{base}/auth/v1/.well-known/jwks.json"
+        if self.judge_model is None:
+            self.judge_model = self.llm_model
+        if self.embedding_provider is None:
+            self.embedding_provider = self.llm_provider
+        if self.embedding_base_url is None:
+            self.embedding_base_url = self.llm_base_url
+        if self.local_jwt_secret is None:
+            if self.auth_provider is AuthProvider.LOCAL and self.app_env is not AppEnv.LOCAL:
+                raise ValueError("APP_ENV가 local이 아니면 LOCAL_JWT_SECRET이 필요합니다")
+            self.local_jwt_secret = SecretStr(secrets.token_urlsafe(32))
         return self
+
+    @property
+    def judge_model_name(self) -> str:
+        return self.judge_model or self.llm_model
 
 
 @lru_cache

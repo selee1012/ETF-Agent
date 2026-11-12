@@ -1,0 +1,16 @@
+# api 이미지 빌드 컨텍스트(레포 루트)에서 제외할 것
+.git
+.github
+.idea
+.env
+.env.*
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/node_modules
+apps/web
+infra
+var
+ml/finetune
+**/*.gguf

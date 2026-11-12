@@ -3,68 +3,107 @@ SHELL := /bin/bash
 
 API_DIR := apps/api
 WEB_DIR := apps/web
-COMPOSE := docker compose -f infra/mvp/docker-compose.yml --env-file .env
+COMPOSE := docker compose -f infra/local/docker-compose.yml --env-file .env
+# PROVIDER=fake 처럼 주면 LLM·임베딩 공급자를 이번 실행에만 바꾼다(예: make up PROVIDER=fake)
+PROVIDER_ENV := $(if $(PROVIDER),LLM_PROVIDER=$(PROVIDER) EMBEDDING_PROVIDER=$(PROVIDER))
+API_EXEC := $(COMPOSE) exec -T $(if $(PROVIDER),-e LLM_PROVIDER=$(PROVIDER) -e EMBEDDING_PROVIDER=$(PROVIDER)) api
+PY_DIRS := . ../../jobs ../../ml ../../scripts
 
-# .env 값을 make 변수로 읽는다(값에 `$`, `#`는 쓰지 않는다).
--include .env
+# .env에서 필요한 값만 읽는다. `-include .env`는 셸 환경변수(LLM_PROVIDER=fake 등)를
+# 빈 값으로 덮어쓰기 때문에 쓰지 않는다. ?= 이므로 셸 값이 항상 우선한다.
+dotenv = $(shell test -f .env && grep -E '^$(1)=' .env | tail -1 | cut -d= -f2-)
+POSTGRES_USER ?= $(call dotenv,POSTGRES_USER)
+POSTGRES_PASSWORD ?= $(call dotenv,POSTGRES_PASSWORD)
+POSTGRES_DB ?= $(call dotenv,POSTGRES_DB)
+POSTGRES_PORT ?= $(call dotenv,POSTGRES_PORT)
+TEST_DATABASE_URL ?= $(call dotenv,TEST_DATABASE_URL)
+EMBEDDING_MODEL ?= $(call dotenv,EMBEDDING_MODEL)
 
-# 테스트는 호스트에서 돌기 때문에 compose 내부 호스트명(postgres) 대신 localhost로 접속한다.
+# 테스트는 호스트에서 돌기 때문에 compose 내부 호스트명(db) 대신 localhost로 접속한다.
+# conftest가 이 URL의 DB 이름 뒤에 _test를 붙인 별도 DB를 만들어 쓴다(개발 DB를 건드리지 않는다).
 ifeq ($(strip $(TEST_DATABASE_URL)),)
-TEST_DATABASE_URL := postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:$(or $(POSTGRES_PORT),5432)/$(POSTGRES_DB)
+TEST_DATABASE_URL := postgresql+asyncpg://$(or $(POSTGRES_USER),etf):$(POSTGRES_PASSWORD)@localhost:$(or $(POSTGRES_PORT),5432)/$(or $(POSTGRES_DB),etf_agent)
 endif
 
 .PHONY: help
 help: ## 사용 가능한 타깃 목록
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: check-env
 check-env:
 	@test -f .env || { echo ".env가 없습니다. 'cp .env.example .env' 후 값을 채우세요." >&2; exit 1; }
 
 .PHONY: setup
-setup: ## 로컬 의존성 설치(uv, npm)와 pre-commit 훅 등록
+setup: ## 호스트 의존성 설치(uv, npm) — make test/lint용
 	cd $(API_DIR) && uv sync --locked
 	cd $(WEB_DIR) && npm ci
-	uvx pre-commit install
 
-.PHONY: dev
-dev: check-env ## dev 프로필 기동(api + postgres), 헬스체크 통과까지 대기
-	$(COMPOSE) --profile dev up -d --build --wait api postgres
+# ---------- 로컬 스택 ----------
+.PHONY: up
+up: check-env ## db·api·web 기동(빌드 포함), 헬스체크 통과까지 대기. Ollama 없이: make up PROVIDER=fake
+	$(PROVIDER_ENV) $(COMPOSE) up -d --build --wait db api web
 
-.PHONY: dev-llm
-dev-llm: check-env ## dev + 컨테이너 Ollama까지 기동(GPU 없는 맥에서는 네이티브 Ollama 권장)
-	$(COMPOSE) --profile dev --profile ollama up -d --build --wait api postgres ollama
+.PHONY: up-ollama
+up-ollama: check-env ## 맥이 아닌 OS: 컨테이너 Ollama까지 기동(LLM_BASE_URL=http://ollama:11434/v1)
+	$(PROVIDER_ENV) $(COMPOSE) --profile ollama up -d --build --wait
 
 .PHONY: down
 down: check-env ## 모든 컨테이너 중지(볼륨 유지)
-	$(COMPOSE) --profile dev --profile ollama down
+	$(COMPOSE) --profile ollama down
+
+.PHONY: ps
+ps: check-env ## 컨테이너 상태
+	$(COMPOSE) ps
 
 .PHONY: logs
 logs: check-env ## api 로그 팔로우
 	$(COMPOSE) logs -f api
 
+# ---------- 데이터 ----------
 .PHONY: migrate
-migrate: check-env ## Alembic 마이그레이션을 api 컨테이너에서 head까지 적용
-	$(COMPOSE) run --rm --no-deps api alembic upgrade head
+migrate: check-env ## Alembic 마이그레이션 head까지 적용(P1-DA-01)
+	$(API_EXEC) alembic upgrade head
 
+.PHONY: seed
+seed: check-env ## 샘플 ETF 마스터·시세·공시 적재(P1-DA-02)
+	$(API_EXEC) python -m jobs.seed
+
+.PHONY: ingest
+ingest: check-env ## 샘플 문서 청킹·임베딩 적재(P1-DA-03). 다른 경로: make ingest ARGS="경로"
+	$(API_EXEC) python -m jobs.ingest $(or $(ARGS),/workspace/data/samples/docs)
+
+.PHONY: collect
+collect: check-env ## 공공데이터포털·DART 수집(키가 없으면 안내만 출력)
+	$(API_EXEC) python -m jobs.collector $(ARGS)
+
+.PHONY: pull-models
+pull-models: ## 호스트 Ollama에 임베딩 모델 받기(생성 모델은 README 참고)
+	ollama pull $(or $(EMBEDDING_MODEL),bge-m3)
+
+# ---------- 품질 ----------
 .PHONY: test
-test: ## API 테스트(로컬 postgres 필요: make dev)
-	cd $(API_DIR) && DATABASE_URL='$(TEST_DATABASE_URL)' uv run pytest
+test: ## API 테스트(LLM_PROVIDER=fake, db 컨테이너 필요: make up)
+	cd $(API_DIR) && TEST_DATABASE_URL='$(TEST_DATABASE_URL)' LLM_PROVIDER=fake EMBEDDING_PROVIDER=fake uv run pytest
 
 .PHONY: lint
-lint: ## ruff + eslint + prettier 검사
-	cd $(API_DIR) && uv run ruff check . && uv run ruff format --check .
-	cd $(WEB_DIR) && npm run lint && npm run format:check
+lint: ## ruff(api·jobs·ml·scripts) + eslint + prettier + tsc
+	cd $(API_DIR) && uv run ruff check $(PY_DIRS) && uv run ruff format --check $(PY_DIRS)
+	cd $(WEB_DIR) && npm run lint && npm run format:check && npm run typecheck
 
 .PHONY: fmt
 fmt: ## 자동 포맷(ruff, prettier)
-	cd $(API_DIR) && uv run ruff check --fix . && uv run ruff format .
+	cd $(API_DIR) && uv run ruff check --fix $(PY_DIRS) && uv run ruff format $(PY_DIRS)
 	cd $(WEB_DIR) && npm run format
 
-.PHONY: web-dev
-web-dev: ## Vite 개발 서버
-	cd $(WEB_DIR) && npm run dev
+.PHONY: eval
+eval: check-env ## 평가 리포트(JSON + 표). 예: make eval PROVIDER=fake
+	$(API_EXEC) python -m ml.eval $(ARGS)
 
+.PHONY: demo
+demo: check-env ## 대표 질문 6개 실행(호스트 Ollama 필요). 예: make demo PROVIDER=fake
+	$(API_EXEC) python /workspace/scripts/demo.py $(ARGS)
+
+# ---------- 웹 ----------
 .PHONY: web-build
 web-build: ## 웹 정적 빌드(apps/web/dist)
 	cd $(WEB_DIR) && npm run build
