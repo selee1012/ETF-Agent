@@ -1,0 +1,108 @@
+"""컴플라이언스 가드: 금칙 표현·고지 누락·개인정보·근거 없는 수치, 1회 재생성 후 안전 답변 (P1-AG-06)."""
+
+import json
+
+import pytest
+
+from app.agents.graph import run_graph
+from app.agents.guard.rules import check_rules, find_banned, ungrounded_numbers
+from app.agents.state import AgentDeps
+from app.llm.fake import FakeLLM
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "이 ETF는 원금이 보장됩니다.",
+        "원금 보장 상품이라 안심하세요.",
+        "연 5% 수익 보장",
+        "손실이 전혀 없습니다.",
+        "무조건 오릅니다.",
+        "내년에는 상승할 것입니다.",
+        "지금 매수를 추천합니다.",
+        "지금 사세요!",
+    ],
+)
+def test_banned_expressions_detected(text: str) -> None:
+    assert find_banned(text), text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "ETF는 원금이 보장되지 않습니다.",
+        "원금 보장되지 않는 상품입니다.",
+        "수익이 보장되지 않으며 손실이 날 수 있습니다.",
+        "과거 수익률이 미래 수익을 보장하지 않습니다.",
+    ],
+)
+def test_negated_expressions_allowed(text: str) -> None:
+    assert find_banned(text) == [], text
+
+
+def test_ungrounded_numbers() -> None:
+    evidence = ["| 종가 | 36,180원 |\n| 괴리율 | 0.23% |"]
+    assert ungrounded_numbers("종가는 36,180원, 괴리율은 0.23%입니다.", evidence) == []
+    assert ungrounded_numbers("괴리율은 0.5%입니다.", evidence) == ["0.5%"]
+    # 날짜·인용 번호·티커는 검사하지 않는다
+    assert ungrounded_numbers("2026-11-11 기준 900010 [1]", evidence) == []
+
+
+def test_missing_disclaimer_and_pii() -> None:
+    reasons = check_rules(
+        "연락처 010-1234-5678로 주세요",
+        included_disclaimers=[],
+        required_disclaimers=["general"],
+        evidence=[],
+    )
+    assert "missing_disclaimer:general" in reasons
+    assert "pii:PHONE" in reasons
+
+
+async def test_banned_answer_regenerates_once_then_safe_answer(
+    deps: AgentDeps, fake_llm: FakeLLM
+) -> None:
+    bad = "ETF는 원금이 보장되는 안전한 상품입니다. [1]"
+    fake_llm.push("faq_answer", bad, bad)
+    st = await run_graph(deps, request_id="t", query="ETF가 뭐야?")
+    assert fake_llm.count("faq_answer") == 2  # 최초 1회 + 재생성 1회
+    assert st["verdict"] == "blocked"
+    assert "원금이 보장되는" not in st["answer"]
+    assert "문의" in st["answer"]  # 안전 답변 + 문의 채널
+    assert any("banned:guarantee_principal" in rs for rs in st["guard_history"])
+
+
+async def test_regeneration_can_pass(deps: AgentDeps, fake_llm: FakeLLM) -> None:
+    fake_llm.push(
+        "faq_answer",
+        "ETF는 무조건 오릅니다. [1]",
+        "ETF는 지수를 따라가도록 만든 펀드를 거래소에 상장한 상품입니다. [1]",
+    )
+    st = await run_graph(deps, request_id="t", query="ETF가 뭐야?")
+    assert st["verdict"] == "pass_after_retry"
+    assert "무조건" not in st["answer"]
+
+
+async def test_judge_model_blocks_solicitation(deps: AgentDeps, fake_llm: FakeLLM) -> None:
+    verdict = json.dumps({"grounded": True, "is_solicitation": True, "issues": ["권유"]})
+    fake_llm.push("judge", verdict, verdict)
+    st = await run_graph(deps, request_id="t", query="괴리율이 뭐야?")
+    assert fake_llm.count("judge") == 2
+    assert st["verdict"] == "blocked"
+    assert any("judge:solicitation" in rs for rs in st["guard_history"])
+
+
+async def test_judge_unparsed_does_not_block(deps: AgentDeps, fake_llm: FakeLLM) -> None:
+    fake_llm.push("judge", "판정 불가")
+    st = await run_graph(deps, request_id="t", query="괴리율이 뭐야?")
+    assert st["verdict"] == "pass"
+    assert "note:judge_unparsed" in st["guard_history"][0]
+
+
+async def test_ungrounded_number_in_summary_blocks(deps: AgentDeps, fake_llm: FakeLLM) -> None:
+    fake_llm.push("etf_summary", "샘플 코스피200의 괴리율은 9.99%입니다.")
+    st = await run_graph(deps, request_id="t", query="샘플 코스피200 괴리율")
+    # 재생성 시도에서는 요약 없이 DB 표만 내보내므로 통과한다
+    assert st["verdict"] == "pass_after_retry"
+    assert "9.99%" not in st["answer"]
+    assert "ungrounded_number:9.99%" in st["guard_history"][0]
