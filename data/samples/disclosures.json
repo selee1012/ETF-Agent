@@ -1,0 +1,82 @@
+[
+  {
+    "ticker": "900010",
+    "constituent_name": null,
+    "title": "[샘플] 샘플 코스피200 분배금 지급 안내",
+    "disclosed_at": "2026-10-28",
+    "url": "https://example.com/disclosures/sample-0001",
+    "summary": "샘플 코스피200의 분기 분배금(1좌당 150원) 지급 기준일과 지급일을 안내하는 샘플 공시입니다."
+  },
+  {
+    "ticker": "900010",
+    "constituent_name": null,
+    "title": "[샘플] 샘플 코스피200 총보수 인하 안내",
+    "disclosed_at": "2026-09-15",
+    "url": "https://example.com/disclosures/sample-0002",
+    "summary": "총보수를 연 0.0500%에서 연 0.0450%로 인하한다는 샘플 공시입니다."
+  },
+  {
+    "ticker": "900040",
+    "constituent_name": null,
+    "title": "[샘플] 샘플 미국나스닥100 지수 정기변경 반영",
+    "disclosed_at": "2026-11-03",
+    "url": "https://example.com/disclosures/sample-0003",
+    "summary": "기초지수 정기변경에 따라 일부 구성종목 비중이 조정되었다는 샘플 공시입니다."
+  },
+  {
+    "ticker": "900040",
+    "constituent_name": "샘플테크(가상)",
+    "title": "[샘플] 구성종목 샘플테크(가상) 분기 실적 발표",
+    "disclosed_at": "2026-10-30",
+    "url": "https://example.com/disclosures/sample-0004",
+    "summary": "구성종목인 가상의 샘플테크가 분기 실적을 발표했다는 샘플 공시입니다. 매출은 전년 동기 대비 증가했습니다."
+  },
+  {
+    "ticker": "900050",
+    "constituent_name": "샘플전자(가상)",
+    "title": "[샘플] 구성종목 샘플전자(가상) 시설투자 결정",
+    "disclosed_at": "2026-11-06",
+    "url": "https://example.com/disclosures/sample-0005",
+    "summary": "반도체 구성종목인 가상의 샘플전자가 신규 시설투자를 결정했다는 샘플 공시입니다."
+  },
+  {
+    "ticker": "900050",
+    "constituent_name": null,
+    "title": "[샘플] 샘플 반도체 투자설명서 정정",
+    "disclosed_at": "2026-10-02",
+    "url": "https://example.com/disclosures/sample-0006",
+    "summary": "투자설명서의 위험 고지 문구를 정정했다는 샘플 공시입니다."
+  },
+  {
+    "ticker": "900150",
+    "constituent_name": null,
+    "title": "[샘플] 샘플 코스피200레버리지 투자위험 고지 강화",
+    "disclosed_at": "2026-10-21",
+    "url": "https://example.com/disclosures/sample-0007",
+    "summary": "레버리지 상품의 장기 보유 시 복리 효과로 기초지수 2배와 성과가 달라질 수 있음을 고지하는 샘플 공시입니다."
+  },
+  {
+    "ticker": "900110",
+    "constituent_name": null,
+    "title": "[샘플] 샘플 CD금리액티브 분배금 지급 안내",
+    "disclosed_at": "2026-10-31",
+    "url": "https://example.com/disclosures/sample-0008",
+    "summary": "월 분배금 지급 일정을 안내하는 샘플 공시입니다."
+  },
+  {
+    "ticker": "900030",
+    "constituent_name": null,
+    "title": "[샘플] 샘플 미국S&P500 상장좌수 변경",
+    "disclosed_at": "2026-11-05",
+    "url": "https://example.com/disclosures/sample-0009",
+    "summary": "설정에 따라 상장좌수가 늘어났다는 샘플 공시입니다."
+  },
+  {
+    "ticker": "900060",
+    "constituent_name": "샘플배터리(가상)",
+    "title": "[샘플] 구성종목 샘플배터리(가상) 공급계약 체결",
+    "disclosed_at": "2026-11-07",
+    "url": "https://example.com/disclosures/sample-0010",
+    "summary": "2차전지 구성종목인 가상의 샘플배터리가 단일판매·공급계약을 체결했다는 샘플 공시입니다."
+  }
+]

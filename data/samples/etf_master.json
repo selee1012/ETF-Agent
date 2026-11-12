@@ -1,0 +1,313 @@
+[
+  {
+    "ticker": "900010",
+    "isin": "KR7900010000",
+    "name": "샘플 코스피200",
+    "aliases": [
+      "코스피200 샘플",
+      "샘플코스피"
+    ],
+    "issuer": "샘플자산운용",
+    "underlying_index": "KOSPI 200",
+    "total_expense_ratio": 0.045,
+    "category": "국내 주식 시장대표",
+    "listed_date": "2015-03-10",
+    "description": "[샘플 데이터] KOSPI 200 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900020",
+    "isin": "KR7900020000",
+    "name": "샘플 코스닥150",
+    "aliases": [
+      "코스닥150 샘플",
+      "샘플코스닥"
+    ],
+    "issuer": "샘플자산운용",
+    "underlying_index": "KOSDAQ 150",
+    "total_expense_ratio": 0.15,
+    "category": "국내 주식 시장대표",
+    "listed_date": "2016-07-21",
+    "description": "[샘플 데이터] KOSDAQ 150 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900030",
+    "isin": "KR7900030000",
+    "name": "샘플 미국S&P500",
+    "aliases": [
+      "샘플 S&P500",
+      "샘플에스앤피",
+      "S&P500 샘플"
+    ],
+    "issuer": "예시자산운용",
+    "underlying_index": "S&P 500",
+    "total_expense_ratio": 0.07,
+    "category": "해외 주식 시장대표",
+    "listed_date": "2020-08-07",
+    "description": "[샘플 데이터] S&P 500 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900040",
+    "isin": "KR7900040000",
+    "name": "샘플 미국나스닥100",
+    "aliases": [
+      "샘플 나스닥100",
+      "샘플나스닥",
+      "나스닥100 샘플"
+    ],
+    "issuer": "예시자산운용",
+    "underlying_index": "NASDAQ-100",
+    "total_expense_ratio": 0.07,
+    "category": "해외 주식 시장대표",
+    "listed_date": "2020-08-07",
+    "description": "[샘플 데이터] NASDAQ-100 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900050",
+    "isin": "KR7900050000",
+    "name": "샘플 반도체",
+    "aliases": [
+      "샘플반도체",
+      "반도체 샘플"
+    ],
+    "issuer": "샘플자산운용",
+    "underlying_index": "KRX 반도체",
+    "total_expense_ratio": 0.45,
+    "category": "국내 주식 업종",
+    "listed_date": "2018-05-15",
+    "description": "[샘플 데이터] KRX 반도체 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900060",
+    "isin": "KR7900060000",
+    "name": "샘플 2차전지테마",
+    "aliases": [
+      "샘플 2차전지",
+      "샘플배터리",
+      "2차전지 샘플"
+    ],
+    "issuer": "모의자산운용",
+    "underlying_index": "KRX 2차전지 K-뉴딜",
+    "total_expense_ratio": 0.45,
+    "category": "국내 주식 테마",
+    "listed_date": "2020-10-07",
+    "description": "[샘플 데이터] KRX 2차전지 K-뉴딜 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900070",
+    "isin": "KR7900070000",
+    "name": "샘플 고배당",
+    "aliases": [
+      "샘플배당",
+      "고배당 샘플"
+    ],
+    "issuer": "모의자산운용",
+    "underlying_index": "KOSPI 고배당 50",
+    "total_expense_ratio": 0.23,
+    "category": "국내 주식 배당",
+    "listed_date": "2017-01-24",
+    "description": "[샘플 데이터] KOSPI 고배당 50 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900080",
+    "isin": "KR7900080000",
+    "name": "샘플 미국배당다우존스",
+    "aliases": [
+      "샘플 미국배당",
+      "샘플 SCHD형",
+      "미국배당 샘플"
+    ],
+    "issuer": "예시자산운용",
+    "underlying_index": "Dow Jones U.S. Dividend 100",
+    "total_expense_ratio": 0.01,
+    "category": "해외 주식 배당",
+    "listed_date": "2021-10-19",
+    "description": "[샘플 데이터] Dow Jones U.S. Dividend 100 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900090",
+    "isin": "KR7900090000",
+    "name": "샘플 국고채10년",
+    "aliases": [
+      "샘플 국고채",
+      "국고채10년 샘플"
+    ],
+    "issuer": "샘플자산운용",
+    "underlying_index": "KTB 10Y 지수",
+    "total_expense_ratio": 0.05,
+    "category": "국내 채권",
+    "listed_date": "2019-11-12",
+    "description": "[샘플 데이터] KTB 10Y 지수 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900100",
+    "isin": "KR7900100000",
+    "name": "샘플 미국채30년",
+    "aliases": [
+      "샘플 미국채",
+      "미국장기채 샘플"
+    ],
+    "issuer": "예시자산운용",
+    "underlying_index": "US Treasury 20+ Year",
+    "total_expense_ratio": 0.05,
+    "category": "해외 채권",
+    "listed_date": "2022-03-29",
+    "description": "[샘플 데이터] US Treasury 20+ Year 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900110",
+    "isin": "KR7900110000",
+    "name": "샘플 CD금리액티브",
+    "aliases": [
+      "샘플 CD금리",
+      "샘플파킹",
+      "CD금리 샘플"
+    ],
+    "issuer": "모의자산운용",
+    "underlying_index": "KIS CD금리 총수익지수",
+    "total_expense_ratio": 0.02,
+    "category": "단기금리",
+    "listed_date": "2020-07-29",
+    "description": "[샘플 데이터] KIS CD금리 총수익지수 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900120",
+    "isin": "KR7900120000",
+    "name": "샘플 KOFR금리",
+    "aliases": [
+      "샘플 KOFR",
+      "KOFR 샘플"
+    ],
+    "issuer": "샘플자산운용",
+    "underlying_index": "KOFR 총수익지수",
+    "total_expense_ratio": 0.05,
+    "category": "단기금리",
+    "listed_date": "2021-04-08",
+    "description": "[샘플 데이터] KOFR 총수익지수 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900130",
+    "isin": "KR7900130000",
+    "name": "샘플 골드선물",
+    "aliases": [
+      "샘플 금",
+      "샘플골드",
+      "금 샘플"
+    ],
+    "issuer": "예시자산운용",
+    "underlying_index": "S&P GSCI Gold",
+    "total_expense_ratio": 0.68,
+    "category": "원자재",
+    "listed_date": "2014-09-17",
+    "description": "[샘플 데이터] S&P GSCI Gold 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900140",
+    "isin": "KR7900140000",
+    "name": "샘플 WTI원유선물",
+    "aliases": [
+      "샘플 원유",
+      "샘플WTI",
+      "원유 샘플"
+    ],
+    "issuer": "모의자산운용",
+    "underlying_index": "S&P GSCI Crude Oil",
+    "total_expense_ratio": 0.7,
+    "category": "원자재",
+    "listed_date": "2016-12-06",
+    "description": "[샘플 데이터] S&P GSCI Crude Oil 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900150",
+    "isin": "KR7900150000",
+    "name": "샘플 코스피200레버리지",
+    "aliases": [
+      "샘플 레버리지",
+      "레버리지 샘플",
+      "샘플레버리지"
+    ],
+    "issuer": "샘플자산운용",
+    "underlying_index": "KOSPI 200 레버리지",
+    "total_expense_ratio": 0.64,
+    "category": "레버리지·인버스",
+    "listed_date": "2010-02-22",
+    "description": "[샘플 데이터] KOSPI 200 레버리지 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900160",
+    "isin": "KR7900160000",
+    "name": "샘플 코스피200인버스",
+    "aliases": [
+      "샘플 인버스",
+      "인버스 샘플",
+      "샘플인버스"
+    ],
+    "issuer": "샘플자산운용",
+    "underlying_index": "KOSPI 200 선물인버스",
+    "total_expense_ratio": 0.64,
+    "category": "레버리지·인버스",
+    "listed_date": "2009-09-16",
+    "description": "[샘플 데이터] KOSPI 200 선물인버스 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900170",
+    "isin": "KR7900170000",
+    "name": "샘플 리츠부동산",
+    "aliases": [
+      "샘플 리츠",
+      "리츠 샘플"
+    ],
+    "issuer": "모의자산운용",
+    "underlying_index": "KRX 리츠TOP10",
+    "total_expense_ratio": 0.29,
+    "category": "부동산",
+    "listed_date": "2022-08-30",
+    "description": "[샘플 데이터] KRX 리츠TOP10 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900180",
+    "isin": "KR7900180000",
+    "name": "샘플 TDF2045",
+    "aliases": [
+      "샘플 TDF",
+      "TDF2045 샘플"
+    ],
+    "issuer": "예시자산운용",
+    "underlying_index": "샘플 TDF 2045 혼합지수",
+    "total_expense_ratio": 0.25,
+    "category": "자산배분",
+    "listed_date": "2022-11-17",
+    "description": "[샘플 데이터] 샘플 TDF 2045 혼합지수 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900190",
+    "isin": "KR7900190000",
+    "name": "샘플 중국항셍테크",
+    "aliases": [
+      "샘플 항셍테크",
+      "항셍테크 샘플",
+      "샘플항셍"
+    ],
+    "issuer": "예시자산운용",
+    "underlying_index": "Hang Seng TECH",
+    "total_expense_ratio": 0.49,
+    "category": "해외 주식 시장대표",
+    "listed_date": "2020-12-16",
+    "description": "[샘플 데이터] Hang Seng TECH 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  },
+  {
+    "ticker": "900200",
+    "isin": "KR7900200000",
+    "name": "샘플 미국테크TOP10",
+    "aliases": [
+      "샘플 테크10",
+      "샘플빅테크",
+      "빅테크 샘플"
+    ],
+    "issuer": "모의자산운용",
+    "underlying_index": "Indxx US Tech Top 10",
+    "total_expense_ratio": 0.49,
+    "category": "해외 주식 테마",
+    "listed_date": "2021-03-30",
+    "description": "[샘플 데이터] Indxx US Tech Top 10 지수를 추종하는 가상의 ETF입니다. 실제 상품이 아닙니다."
+  }
+]

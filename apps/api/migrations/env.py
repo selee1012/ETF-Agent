@@ -8,6 +8,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
+import app.repositories.models  # noqa: F401  (metadata 등록)
 from app.db import Base
 from app.settings import get_settings
 
