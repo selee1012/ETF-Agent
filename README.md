@@ -39,10 +39,11 @@ make pull-models                   # = ollama pull bge-m3 (임베딩, 1024차원
    ```
 2. **대체 모델** — 바로 쓸 수 있는 한국어 가능 모델을 받고 `.env`의 `LLM_MODEL`만 바꾼다.
    ```bash
-   ollama pull qwen3:4b          # 또는 exaone3.5:2.4b 등
-   # .env: LLM_MODEL=qwen3:4b  (JUDGE_MODEL을 비우면 같은 모델로 검증)
+   ollama pull gemma3:12b        # 또는 exaone3.5:7.8b(비상업 라이선스), qwen3:4b 등
+   # .env(.local): LLM_MODEL=gemma3:12b  (JUDGE_MODEL을 비우면 같은 모델로 검증)
    ```
    추론형 모델이 내는 `<think>…</think>`는 어댑터가 제거한다.
+   임베딩도 `snowflake-arctic-embed2`(1024차원, 다국어)로 바꿀 수 있다(`EMBEDDING_MODEL`).
 
 맥이 아닌 OS(리눅스·윈도우)는 컨테이너 Ollama를 쓸 수 있다:
 `make up-ollama` 후 `.env`에 `LLM_BASE_URL=http://ollama:11434/v1`,
@@ -75,6 +76,36 @@ make demo PROVIDER=fake ; make eval PROVIDER=fake
 > 임베딩 공급자를 바꾸면(fake ↔ bge-m3) `make ingest`가 모델 이름 차이를 감지해 다시 임베딩한다.
 > 같은 문서·같은 모델이면 `unchanged`로 건너뛴다(`ARGS="--force"`로 강제).
 
+### 한 줄 실행 스크립트
+
+```bash
+./scripts/run-fake.sh     # Ollama 없이(fake LLM·임베딩). demo | eval | test | down 하위 명령
+./scripts/run-local.sh    # .env.local의 실제 모델로(Ollama면 모델 확인·다운로드까지). down | logs
+```
+
+두 스크립트 모두 `.env`가 없으면 `.env.example`로 만들고 DB 비밀번호·JWT 키를 무작위로 채운 뒤
+기동 → migrate → seed → ingest까지 한다(이미 있는 값은 건드리지 않는다).
+
+### 개인용 로컬 설정 `.env.local` (gitignore)
+
+`.env.local`은 `.env` 뒤에 읽혀 같은 이름의 값을 덮는다(앱 설정·compose·Makefile 모두 같은 순서).
+개인 API 키나 모델 선택은 여기에 둔다. `run-local.sh`가 없으면 `.env.local.example`로 만든다.
+
+| 방식 | 설정 | 비고 |
+| --- | --- | --- |
+| Ollama(기본) | `LLM_MODEL=gemma3:12b`, `EMBEDDING_MODEL=snowflake-arctic-embed2` | 질의가 이 Mac 밖으로 나가지 않는다 |
+| OpenAI API | `LLM_BASE_URL=https://api.openai.com/v1`, `LLM_API_KEY`, `EMBEDDING_REQUEST_DIMENSIONS=true` | 질의가 OpenAI로 전송된다. gpt-5·o 계열은 `OPENAI_MAX_TOKENS_PARAM`·`OPENAI_OMIT_TEMPERATURE` |
+
+**일반 대화 모드**(`GENERAL_CHAT_ENABLED=true`, `APP_ENV=local` 전용) — 개인용 ChatGPT처럼 쓴다.
+
+- ETF와 무관한 질문(코딩·일상 등)은 범위 밖 템플릿 대신 모델이 이전 대화를 이어 자유롭게 답한다.
+- ETF·투자와 무관한 추천·시점 질문('저녁 메뉴 추천해줘')도 일반 대화로 간다.
+- FAQ 질문에 등록 문서 근거가 없으면 모델 일반 지식으로 답하고 '근거 없음'을 표시한다.
+- ETF 정보·공시·근거 있는 FAQ, 고위험·ETF 추천 템플릿, 금칙 표현·개인정보 룰 가드는 그대로다.
+- 배포(`APP_ENV≠local`)에서는 켤 수 없다(설정 검증에서 기동 실패).
+
+고도화 버전(AWS Bedrock·자체 호스팅 vLLM)은 [`infra/aws/README.md`](infra/aws/README.md)를 본다.
+
 ### 로컬 .env 예시
 
 ```dotenv
@@ -104,7 +135,7 @@ LLM_MODEL=midm-2.0-mini
 | `migrate` / `seed` / `ingest` / `collect` | Alembic, 샘플 적재, 문서 적재(`ARGS="경로 --force"`), 공공데이터·DART 수집 |
 | `test` / `lint` / `fmt` | 호스트에서 실행 |
 | `eval` / `demo` | api 컨테이너에서 실행. `PROVIDER=fake` 지원, eval은 `ARGS="--with-judge --out r.json"` |
-| `pull-models` | 호스트 Ollama에 `bge-m3` 받기 |
+| `pull-models` | 호스트 Ollama에 `.env`(`.local`)의 `EMBEDDING_MODEL`·`LLM_MODEL` 받기 |
 
 ## API 요약
 
@@ -129,7 +160,7 @@ LLM_MODEL=midm-2.0-mini
 
 ## 환경변수
 
-정의는 `apps/api/app/settings.py`가 단일 출처다. 빈 값은 기본값, 셸 환경변수가 `.env`보다 우선한다.
+정의는 `apps/api/app/settings.py`가 단일 출처다. 빈 값은 기본값이고, 우선순위는 셸 환경변수 > `.env.local` > `.env`.
 
 | 변수 | 기본값 | 설명 |
 | --- | --- | --- |
@@ -147,17 +178,20 @@ LLM_MODEL=midm-2.0-mini
 | `SUPABASE_URL` / `SUPABASE_JWKS_URL` / `SUPABASE_JWT_SECRET` | - | [나중] Supabase Auth |
 | `COGNITO_USER_POOL_ID` / `COGNITO_REGION` | - / `ap-northeast-2` | [나중] Cognito |
 | `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` | - | [나중] Cloudflare Access |
-| `LLM_PROVIDER` | `openai_compat` | `openai_compat`(Ollama·vLLM) \| `fake` |
+| `LLM_PROVIDER` | `openai_compat` | `openai_compat`(Ollama·vLLM·OpenAI API) \| `bedrock` \| `fake` |
 | `LLM_BASE_URL` | `http://host.docker.internal:11434/v1` | OpenAI 호환 `/v1` |
-| `LLM_API_KEY` | - | vLLM `--api-key` 대비 |
-| `LLM_MODEL` | `midm-2.0-mini` | 생성 모델 |
+| `LLM_API_KEY` | - | OpenAI API 키(`.env.local`에만), vLLM `--api-key` |
+| `LLM_MODEL` | `midm-2.0-mini` | 생성 모델(bedrock이면 모델 ID·추론 프로필 ID) |
 | `JUDGE_MODEL` | = `LLM_MODEL` | 검증 모델 |
 | `LLM_TIMEOUT_SECONDS` / `LLM_MAX_TOKENS` / `LLM_TEMPERATURE` | `60` / `800` / `0.2` | |
-| `EMBEDDING_PROVIDER` | = `LLM_PROVIDER` | `openai_compat` \| `fake` |
+| `OPENAI_MAX_TOKENS_PARAM` / `OPENAI_OMIT_TEMPERATURE` | `max_tokens` / `false` | OpenAI gpt-5·o 계열: `max_completion_tokens` / `true` |
+| `EMBEDDING_PROVIDER` | = `LLM_PROVIDER` | `openai_compat` \| `bedrock` \| `fake` |
 | `EMBEDDING_BASE_URL` | = `LLM_BASE_URL` | |
-| `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `bge-m3` / `1024` | 차원은 `chunks.embedding` 컬럼과 일치 |
-| `FALLBACK_PROVIDER` | `none` | `none` \| `bedrock`(스텁) |
-| `BEDROCK_REGION` / `BEDROCK_MODEL_ID` / `FALLBACK_ALLOWED_INTENTS` | `ap-northeast-2` / - / `faq` | [나중] 폴백 |
+| `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `bge-m3` / `1024` | 차원은 `chunks.embedding` 컬럼과 일치. bedrock: `amazon.titan-embed-text-v2:0` |
+| `EMBEDDING_REQUEST_DIMENSIONS` | `false` | 임베딩 요청에 `dimensions` 전송(OpenAI text-embedding-3) |
+| `BEDROCK_REGION` / `BEDROCK_PROFILE` | `ap-northeast-2` / - | Bedrock 리전, (로컬 시험용) `~/.aws` 프로필. 자격 증명은 boto3 기본 체인 |
+| `FALLBACK_PROVIDER` | `none` | `none` \| `bedrock` |
+| `BEDROCK_MODEL_ID` / `FALLBACK_ALLOWED_INTENTS` | - / `faq` | 폴백 모델 ID(bedrock이면 필수), 폴백 허용 의도 |
 | `STORAGE_PROVIDER` | `local` | `local` \| `supabase`(스텁) \| `s3`(스텁) |
 | `STORAGE_LOCAL_DIR` | `var/storage` (compose: `/data/storage` 볼륨) | |
 | `TRACER` | `pg` | `pg` \| `langfuse`(스텁) |
@@ -166,6 +200,7 @@ LLM_MODEL=midm-2.0-mini
 | `RAG_TOP_K` / `RAG_VECTOR_WEIGHT` / `RAG_MIN_SCORE` | `4` / `0.7` / `0.25` | 하이브리드 검색 상위 k, 벡터 가중치, 근거 최소 점수 |
 | `ENTITY_FUZZY_THRESHOLD` | `80` | ETF명 오타 허용 기준(rapidfuzz) |
 | `INQUIRY_CHANNEL` | 샘플 고객센터 문구 | 안전 답변·고위험 템플릿의 문의 채널 |
+| `GENERAL_CHAT_ENABLED` / `GENERAL_CHAT_TEMPERATURE` | `false` / `0.7` | 일반 대화 모드(`APP_ENV=local` 전용) |
 | `DATA_GO_KR_API_KEY` / `DART_API_KEY` | - | 없으면 `make collect`가 안내만 출력 |
 | `EXTERNAL_TIMEOUT_SECONDS` | `15` | 공공데이터·DART 타임아웃 |
 | `VITE_API_BASE_URL` | `http://localhost:8000` | web(compose가 주입) |
@@ -179,11 +214,11 @@ LLM_MODEL=midm-2.0-mini
 | P1-DA-02 | 샘플 시드, 공공데이터포털·DART 수집 | `jobs/seed/`, `jobs/collector/`, `data/samples/` |
 | P1-DA-03 | 문서 ingest(문단 청킹·겹침, 재적재 갱신) | `apps/api/app/rag/ingest.py`, `apps/api/app/rag/chunker.py`, `jobs/ingest/` |
 | P1-AG-01 | 발화 전처리·ETF명 인식(rapidfuzz) | `apps/api/app/agents/preprocess/` |
-| P1-AG-02 | 오케스트레이터(LLM JSON → 키워드 규칙, 병렬 라우팅) | `apps/api/app/agents/orchestrator/`, `apps/api/app/agents/graph.py` |
+| P1-AG-02 | 오케스트레이터(LLM JSON → 키워드 규칙, 병렬 라우팅), 일반 대화(로컬 전용) | `apps/api/app/agents/orchestrator/`, `apps/api/app/agents/graph.py`, `apps/api/app/agents/general/` |
 | P1-AG-03 | ETF 정보 에이전트·도구 | `apps/api/app/agents/etf_info/`, `apps/api/app/tools/{etf_search,price_lookup,compare}.py` |
 | P1-AG-04 | 지식·FAQ 에이전트(하이브리드 검색, 수준별) | `apps/api/app/agents/faq/`, `apps/api/app/rag/retriever.py`, `prompts/system/faq_*.md` |
 | P1-AG-05 | 공시 요약 에이전트 | `apps/api/app/agents/disclosure/`, `apps/api/app/tools/disclosure_lookup.py` |
-| P1-AG-06 | 답변 합성·컴플라이언스 가드·폴백 자리 | `apps/api/app/agents/compose/`, `apps/api/app/agents/guard/`, `prompts/guard/`, `prompts/templates/`, `apps/api/app/llm/router.py`, `apps/api/app/privacy/` |
+| P1-AG-06 | 답변 합성·컴플라이언스 가드·폴백 자리 | `apps/api/app/agents/compose/`, `apps/api/app/agents/guard/`, `prompts/guard/`, `prompts/templates/`, `apps/api/app/llm/{router,bedrock}.py`, `apps/api/app/privacy/` |
 | P1-API-01 | dev-login, `/chat` SSE | `apps/api/app/routers/{auth,chat}.py`, `apps/api/app/services/chat.py`, `apps/api/app/auth/` |
 | P1-API-02 | 이력 | `apps/api/app/routers/history.py` |
 | P1-API-03 | 피드백 | `apps/api/app/routers/feedback.py` |
@@ -197,7 +232,8 @@ LLM_MODEL=midm-2.0-mini
 | P1-OP-03 | 평가 CLI·데모 | `ml/eval/`, `data/eval-sets/`, `scripts/demo.py` |
 
 테스트: `apps/api/tests/` — 의도별 경로(`test_graph_routes.py`), SSE 순서·첫 status 즉시성(`test_chat_api.py`),
-금칙 표현·1회 재생성 후 안전 답변(`test_guard.py`), 트레이스 원문 미저장(`test_traces.py`), 오타·별칭 인식(`test_preprocess.py`).
+금칙 표현·1회 재생성 후 안전 답변(`test_guard.py`), 트레이스 원문 미저장(`test_traces.py`), 오타·별칭 인식(`test_preprocess.py`),
+Bedrock 요청 형식·폴백·SDK import 경계(`test_bedrock.py`), 일반 대화 모드(`test_general_chat.py`).
 
 ## 확장 지점 (배포 시 바꿀 설정·어댑터)
 
@@ -207,8 +243,9 @@ LLM_MODEL=midm-2.0-mini
 | 인증 | local JWT(dev-login) | Supabase Auth → Cognito | `AUTH_PROVIDER`, `SUPABASE_*`/`COGNITO_*` | `app/auth/supabase_jwt.py`, `app/auth/cognito_jwt.py`, web `src/lib/auth.ts` |
 | 운영 화면 인증 | role=admin | Cloudflare Access | `ADMIN_AUTH=cf_access`, `CF_ACCESS_*` | `app/auth/cf_access.py` |
 | 파일 저장 | 로컬 볼륨 | Supabase Storage → S3 | `STORAGE_PROVIDER` | `app/storage/supabase_storage.py`, `app/storage/s3.py` |
-| LLM | Ollama(OpenAI 호환) | vLLM(같은 클라이언트) | `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | 없음 |
-| 폴백 | 없음(router 자리) | Bedrock | `FALLBACK_PROVIDER=bedrock`, `BEDROCK_*` | `app/llm/router.py`의 `BedrockLLM` |
+| LLM | Ollama(OpenAI 호환) | **Bedrock** 또는 AWS 자체 호스팅 vLLM | `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_MODEL` (`infra/aws/`) | 없음(구현됨: `app/llm/bedrock.py`) |
+| 임베딩 | Ollama bge-m3 등 | Bedrock Titan v2 | `EMBEDDING_PROVIDER=bedrock`, `EMBEDDING_MODEL` | 없음(구현됨) |
+| 폴백 | 없음 | Bedrock | `FALLBACK_PROVIDER=bedrock`, `BEDROCK_MODEL_ID` | 없음(구현됨) |
 | 트레이스 | Postgres `traces` | Langfuse | `TRACER=langfuse` | `app/observability/langfuse_tracer.py` |
 | 메트릭 | `/metrics` 노출 | Grafana Cloud 수집 | — | 없음(수집기 설정만) |
 | 캐시 | 프로세스 TTLCache | (필요 시) Redis | — | `app/cache/__init__.py`(함수 시그니처 유지) |
@@ -239,8 +276,9 @@ ml/eval/        평가 CLI
 prompts/        system/ guard/(rules.yaml, disclaimers.yaml, judge.md) templates/(high_risk/*.md 등)
 data/           samples/(시드·문서) eval-sets/(형식 예시 10줄씩)
 infra/local/    docker-compose.yml db/init.sql ollama/Modelfile.midm
+infra/aws/      고도화 버전 설정 예시(Bedrock, 자체 호스팅 vLLM, IAM 최소 권한)
 infra/mvp/      (참고) 이전 EC2 + cloudflared 배포 초안 — 이번 범위에서는 쓰지 않는다
-scripts/demo.py
+scripts/        demo.py run-fake.sh run-local.sh _common.sh
 ```
 
 ## 결정 기록
@@ -285,3 +323,11 @@ scripts/demo.py
 | 2026-11-12 | Makefile은 `-include .env` 대신 필요한 값만 `?=`로 읽음 | `-include`가 셸의 `LLM_PROVIDER=fake`를 빈 값으로 덮어쓰는 문제 |
 | 2026-11-12 | `boto3`·`sse-starlette` 의존성 제거, `rapidfuzz`·`pyyaml`·`prometheus-client`·`python-multipart` 추가 | 폴백 미구현이라 boto3 불필요, SSE는 StreamingResponse로 충분 |
 | 2026-11-12 | 샘플 종목코드는 실존하지 않는 `9000x0`, 운용사도 가상 이름 | 실제 상품으로 오인되지 않게 |
+| 2026-11-12 | 고도화 버전 LLM은 AWS(Bedrock 관리형 또는 자체 호스팅 vLLM), 로컬은 Ollama | 소형 로컬 모델보다 품질이 높고 모델 출처를 고를 수 있다. 외부 API 금지 정책이면 vLLM 자체 호스팅 |
+| 2026-11-12 | `boto3` 다시 추가, `llm/bedrock.py`에서만 import. 생성은 Converse API, 임베딩은 Titan v2·Cohere | 모델 공통 형식이라 모델 ID만 바꿔 쓴다. DB 1024차원 그대로 |
+| 2026-11-12 | Bedrock 자격 증명은 boto3 기본 체인만, 프로필 설정은 `BEDROCK_PROFILE` | 키를 설정에 두지 않는다. 빈 `AWS_PROFILE`이 컨테이너에 들어가 boto3가 깨지는 것을 피한다 |
+| 2026-11-12 | 개인 설정은 `.env.local`(gitignore)로 분리, `.env` 뒤에 읽음 | 공용 `.env`를 건드리지 않고 개인 키·모델을 바꾼다 |
+| 2026-11-12 | 테스트는 dotenv 파일을 읽지 않는다 | 개인 `.env.local` 값이 테스트 결과를 바꾸지 않게 |
+| 2026-11-12 | 일반 대화 모드는 `APP_ENV=local`에서만, 고위험·ETF 추천 템플릿과 금칙·개인정보 룰은 유지 | 개인용으로 열되 배포 서비스의 준법 경로는 바뀌지 않게 |
+| 2026-11-12 | 일반 대화는 정규화본 대신 원문을 모델에 보낸다 | 정규화가 기호·줄바꿈을 지워 코드·서식이 깨진다. 원문은 메모리에서만 쓰고 저장은 마스킹본 |
+| 2026-11-12 | 근거 없는 답변(일반 대화)은 수치 대조·검증 모델을 건너뛴다 | 대조할 근거가 없어 모든 수치가 오탐이 된다. 금칙 표현·개인정보 룰은 적용 |
