@@ -86,8 +86,8 @@ async def test_non_domain_recommendation_and_timing_go_general(
 async def test_faq_without_evidence_falls_back_to_general(
     gdeps: AgentDeps, fake_llm: FakeLLM
 ) -> None:
-    capture(fake_llm, "운용역 연봉은 회사마다 다르며 약 3.5% 인상이 일반적이라는 말도 있습니다.")
-    st = await ask(gdeps, "ETF 운용역의 연봉 협상 절차는?")
+    capture(fake_llm, "직원 연봉은 회사마다 다르며 약 3.5% 인상이 일반적이라는 말도 있습니다.")
+    st = await ask(gdeps, "ETF 회사 직원의 연봉 협상 절차는?")
     assert st["intents"] == ["faq"]
     assert st["verdict"] == "pass"  # 근거 없는 수치(3.5%)도 일반 대화에서는 막지 않는다
     assert UNGROUNDED_NOTE in st["answer"]

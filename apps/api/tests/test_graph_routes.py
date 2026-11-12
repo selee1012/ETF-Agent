@@ -47,7 +47,7 @@ async def test_faq_answers_with_sources(deps: AgentDeps) -> None:
 
 
 async def test_faq_says_unknown_without_evidence(deps: AgentDeps) -> None:
-    st = await ask(deps, "ETF 운용역의 연봉 협상 절차는?")
+    st = await ask(deps, "ETF 회사 직원의 연봉 협상 절차는?")
     assert st["intents"] == ["faq"]
     assert "제공된 자료로는 답하기 어렵습니다" in st["answer"]
 

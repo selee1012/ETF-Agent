@@ -8,3 +8,8 @@
 {"id": "g08", "question": "샘플 코스피200 지금 사야 할까?", "expected_intents": ["high_risk"], "expected_keywords": ["준법감시 승인 전 초안"], "expected_numbers": []}
 {"id": "g09", "question": "나한테 맞는 ETF 추천해줘", "expected_intents": ["recommendation"], "expected_keywords": ["Phase 3"], "expected_numbers": []}
 {"id": "g10", "question": "총보수 0.1% 이하 해외 주식 ETF 찾아줘", "expected_intents": ["etf_info"], "expected_keywords": ["샘플 미국S&P500", "샘플 미국나스닥100"], "expected_numbers": ["0.0700%"]}
+{"id": "g11", "question": "ETF랑 ETN 차이가 뭐야?", "level": "beginner", "expected_intents": ["faq"], "expected_keywords": ["ETN"], "expected_numbers": []}
+{"id": "g12", "question": "환헤지 ETF가 뭐야?", "expected_intents": ["faq"], "expected_keywords": ["환"], "expected_numbers": []}
+{"id": "g13", "question": "연금계좌에서 레버리지 ETF를 살 수 있나요?", "expected_intents": ["faq"], "expected_keywords": ["연금계좌"], "expected_numbers": []}
+{"id": "g14", "question": "커버드콜 ETF는 어떤 구조야?", "level": "intermediate", "expected_intents": ["faq"], "expected_keywords": ["콜옵션"], "expected_numbers": []}
+{"id": "g15", "question": "ETF가 상장폐지되면 돈은 어떻게 돼?", "expected_intents": ["faq"], "expected_keywords": ["상환"], "expected_numbers": []}
