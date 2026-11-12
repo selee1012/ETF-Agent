@@ -119,3 +119,27 @@ def test_reasoning_effort_off_is_not_sent(clean_env):
     assert llm.primary._reasoning_effort is None
     clean_env.setenv("OPENAI_REASONING_EFFORT", "none")
     assert build_llm(Settings(_env_file=None)).primary._reasoning_effort == "none"  # type: ignore[call-arg]
+
+
+async def test_insufficient_quota_is_reported_clearly():
+    import httpx
+    import openai
+    import pytest
+
+    from app.llm.base import LLMError
+
+    async def create(**kwargs):
+        resp = httpx.Response(429, request=httpx.Request("POST", "http://x/v1"))
+        raise openai.RateLimitError(
+            "You have no credits remaining.",
+            response=resp,
+            # 실제 응답 형식: code는 credit_balance_exhausted, type이 insufficient_quota
+            body={"code": "credit_balance_exhausted", "type": "insufficient_quota"},
+        )
+
+    emb = OpenAICompatEmbedder(
+        base_url="http://x/v1", api_key=None, model="e", dim=2, timeout=5, request_dimensions=True
+    )
+    emb._client = SimpleNamespace(embeddings=SimpleNamespace(create=create))
+    with pytest.raises(LLMError, match="크레딧 없음"):
+        await emb.embed(["a"])
