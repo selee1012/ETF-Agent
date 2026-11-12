@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -119,6 +119,25 @@ async def get_conversation_messages(
         .order_by(Message.created_at)
     )
     return conv, list((await session.scalars(stmt)).all())
+
+
+async def delete_conversation(
+    session: AsyncSession, user_id: uuid.UUID, conversation_id: uuid.UUID
+) -> bool:
+    """본인 대화만 지운다. 메시지는 FK CASCADE로 함께 지워지고, 피드백은 message_id가 NULL이 된다."""
+    result = await session.execute(
+        delete(Conversation).where(
+            Conversation.id == conversation_id, Conversation.user_id == user_id
+        )
+    )
+    await session.commit()
+    return result.rowcount > 0
+
+
+async def delete_all_conversations(session: AsyncSession, user_id: uuid.UUID) -> int:
+    result = await session.execute(delete(Conversation).where(Conversation.user_id == user_id))
+    await session.commit()
+    return result.rowcount
 
 
 async def add_feedback(
