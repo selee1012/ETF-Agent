@@ -42,6 +42,7 @@ def build_llm(settings: Settings, *, model: str | None = None) -> LLMClient:
             default_temperature=settings.llm_temperature,
             max_tokens_param=settings.openai_max_tokens_param,
             omit_temperature=settings.openai_omit_temperature,
+            reasoning_effort=settings.openai_reasoning_effort,
         )
     return LLMRouter(primary, build_fallback(settings), settings.fallback_allowed_intents)
 

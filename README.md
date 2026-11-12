@@ -191,6 +191,7 @@ LLM_MODEL=midm-2.0-mini
 | `JUDGE_MODEL` | = `LLM_MODEL` | 검증 모델 |
 | `LLM_TIMEOUT_SECONDS` / `LLM_MAX_TOKENS` / `LLM_TEMPERATURE` | `60` / `1200` / `0.2` | 최대 토큰은 FAQ 상세 설명 기준 |
 | `OPENAI_MAX_TOKENS_PARAM` / `OPENAI_OMIT_TEMPERATURE` | `max_tokens` / `false` | OpenAI gpt-5·o 계열: `max_completion_tokens` / `true` |
+| `OPENAI_REASONING_EFFORT` | (빈 값) | gpt-5 계열 생각 분량. 빠른 응답이면 `none`(5.1+)·`minimal`(5) |
 | `EMBEDDING_PROVIDER` | = `LLM_PROVIDER` | `openai_compat` \| `bedrock` \| `fake` |
 | `EMBEDDING_BASE_URL` | = `LLM_BASE_URL` | |
 | `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `bge-m3` / `1024` | 차원은 `chunks.embedding` 컬럼과 일치. bedrock: `amazon.titan-embed-text-v2:0` |

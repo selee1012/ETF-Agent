@@ -34,6 +34,7 @@ class OpenAICompatLLM(LLMClient):
         default_temperature: float,
         max_tokens_param: str = "max_tokens",
         omit_temperature: bool = False,
+        reasoning_effort: str | None = None,
     ) -> None:
         self.model = model
         self._client = _client(base_url, api_key, timeout)
@@ -41,6 +42,7 @@ class OpenAICompatLLM(LLMClient):
         self._temperature = default_temperature
         self._max_tokens_param = max_tokens_param
         self._omit_temperature = omit_temperature
+        self._reasoning_effort = reasoning_effort
 
     async def complete(
         self,
@@ -57,6 +59,8 @@ class OpenAICompatLLM(LLMClient):
         params: dict = {self._max_tokens_param: max_tokens or self._max_tokens}
         if not self._omit_temperature:
             params["temperature"] = self._temperature if temperature is None else temperature
+        if self._reasoning_effort:
+            params["reasoning_effort"] = self._reasoning_effort
         try:
             resp = await self._client.chat.completions.create(
                 model=name,

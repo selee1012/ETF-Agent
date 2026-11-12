@@ -116,6 +116,8 @@ class Settings(BaseSettings):
     # OpenAI API 최신 모델(gpt-5·o 계열) 호환: max_tokens 대신 max_completion_tokens, 온도 생략
     openai_max_tokens_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
     openai_omit_temperature: bool = False
+    # 추론형 모델(gpt-5 계열)의 생각 분량. 빠른 응답이 목표면 none(5.1+)·minimal(5). 비우면 보내지 않는다
+    openai_reasoning_effort: Literal["none", "minimal", "low", "medium", "high"] | None = None
     # 임베딩: 비우면 llm_provider를 따른다
     embedding_provider: LLMProvider | None = None
     embedding_base_url: str | None = None  # 비우면 llm_base_url

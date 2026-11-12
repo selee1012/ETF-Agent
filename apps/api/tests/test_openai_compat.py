@@ -51,6 +51,17 @@ async def test_reasoning_model_params():
     assert "max_tokens" not in cap.kwargs and "temperature" not in cap.kwargs
 
 
+async def test_reasoning_effort_only_when_set():
+    llm, cap = _llm()
+    await llm.complete([ChatMessage("user", "q")])
+    assert "reasoning_effort" not in cap.kwargs
+    llm, cap = _llm(
+        max_tokens_param="max_completion_tokens", omit_temperature=True, reasoning_effort="none"
+    )
+    await llm.complete([ChatMessage("user", "q")])
+    assert cap.kwargs["reasoning_effort"] == "none"
+
+
 async def test_embedding_dimensions_flag():
     data = [SimpleNamespace(index=0, embedding=[3.0, 4.0])]
     for flag, expected in ((True, 2), (False, None)):
