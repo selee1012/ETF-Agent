@@ -1,184 +1,287 @@
 # ETF Agent
 
-ETF 질의응답 AI Agent의 MVP(Phase 1) 모노레포.
+ETF 질의응답 AI Agent의 MVP(Phase 1) 모노레포. **로컬 Docker에서 끝까지 돌아가는 상태**가 목표이며,
+나중에 Supabase·Cloudflare·AWS로 옮길 때는 **설정(`.env`)과 어댑터만** 바꾸면 되도록 구성했다.
 
-## 개요
+```
+질문 → 발화 전처리 → 오케스트레이터(의도 분류·라우팅) → 전문 에이전트(ETF 정보 | 지식·FAQ | 공시 요약)
+     → 답변 합성 → 컴플라이언스 가드(룰 → 검증 모델 → 고위험 템플릿) → SSE 스트리밍 응답
+```
 
-| 영역 | MVP(Phase 1) | Phase 2 |
-| --- | --- | --- |
-| 프런트 | Vite + React + TS 정적 SPA → Cloudflare Pages | 동일 |
-| 서버 | FastAPI 1개, EC2에서 Docker Compose 실행, cloudflared로 노출 | 동일 |
-| DB | Supabase(서울) Postgres + pgvector | RDS |
-| 인증 | Supabase Auth | Cognito |
-| 파일 | Supabase Storage | S3 |
-| LLM | Ollama(OpenAI 호환 API), 폴백 Amazon Bedrock(ap-northeast-2) | vLLM |
-
-Phase 2 전환 시 바뀌는 것은 **설정(`.env`)과 어댑터(`app/auth`, `app/storage`, `app/llm`, `app/observability`)뿐**이어야 한다.
-서버는 DB를 SQLAlchemy로만 다루며 supabase-py·Supabase REST로 데이터에 접근하지 않는다.
+> 상품·시세·공시·문서는 모두 개발용 **샘플** 데이터다(`data/samples`, 이름·설명에 '샘플' 표기).
 
 ## 사전 준비
 
-- Docker (Compose v2.24 이상)
-- [uv](https://docs.astral.sh/uv/) — Python 3.14는 uv가 자동으로 받는다
-- Node.js 24 LTS (`.nvmrc`)
-- (선택) 네이티브 [Ollama](https://ollama.com) — 맥에서는 컨테이너보다 빠르다
-- pre-commit: `uv tool install pre-commit`
+| 도구 | 용도 | 비고 |
+| --- | --- | --- |
+| Docker + Compose v2.24+ | db·api·web 실행 | 맥은 Docker Desktop 또는 colima(`colima start`) |
+| [uv](https://docs.astral.sh/uv/) | 호스트에서 `make test`·`make lint` | Python 3.14는 uv가 받는다 |
+| Node.js 24 (`.nvmrc`) | 호스트에서 `make lint`(eslint·prettier·tsc) | web 컨테이너는 자체 Node 사용 |
+| [Ollama](https://ollama.com) (호스트) | LLM·임베딩 | 맥 Docker는 GPU 가속이 안 되므로 **호스트에서 실행** |
 
-## 실행 방법
+### 모델 받기 (자동으로 받지 않는다)
 
 ```bash
-cp .env.example .env            # 값 채우기 (아래 "로컬 .env 예시" 참고)
-make setup                      # uv sync, npm ci, pre-commit install
-
-make dev                        # api + postgres(dev 프로필) 기동, healthy까지 대기
-curl localhost:8000/health      # {"status":"ok","db":"ok"}
-make migrate                    # Alembic head 적용(pgvector extension 생성)
-
-make test                       # API 테스트(로컬 postgres 사용)
-make lint                       # ruff + eslint + prettier
-make fmt                        # 자동 포맷
-make web-dev                    # Vite 개발 서버(http://localhost:5173)
-make web-build                  # apps/web/dist 생성
-make down                       # 컨테이너 중지(볼륨 유지)
+ollama serve                       # 앱으로 설치했다면 이미 떠 있음
+make pull-models                   # = ollama pull bge-m3 (임베딩, 1024차원)
 ```
 
-`make help`로 전체 타깃을 볼 수 있다. 컨테이너 Ollama가 필요하면 `make dev-llm`.
+생성 모델 기본값은 `LLM_MODEL=midm-2.0-mini`(KT Mi:dm 2.0 Mini)이다. 공식 저장소
+[K-intelligence/Midm-2.0-Mini-Instruct](https://huggingface.co/K-intelligence/Midm-2.0-Mini-Instruct/tree/main)
+는 safetensors로 배포되며, 작성 시점에 공식 Mini GGUF는 확인하지 못했다(Base 모델은 커뮤니티 GGUF가 있다).
+둘 중 하나로 준비한다.
+
+1. **Mi:dm 2.0 Mini GGUF 등록** — Hugging Face에서 커뮤니티 GGUF(`Midm-2.0-Mini-Instruct GGUF` 검색)를 받거나
+   llama.cpp의 `convert_hf_to_gguf.py`로 직접 변환한 뒤:
+   ```bash
+   cp <받은파일>.gguf infra/local/ollama/midm-2.0-mini-instruct-q4_k_m.gguf   # *.gguf는 git 제외
+   ollama create midm-2.0-mini -f infra/local/ollama/Modelfile.midm
+   ```
+2. **대체 모델** — 바로 쓸 수 있는 한국어 가능 모델을 받고 `.env`의 `LLM_MODEL`만 바꾼다.
+   ```bash
+   ollama pull qwen3:4b          # 또는 exaone3.5:2.4b 등
+   # .env: LLM_MODEL=qwen3:4b  (JUDGE_MODEL을 비우면 같은 모델로 검증)
+   ```
+   추론형 모델이 내는 `<think>…</think>`는 어댑터가 제거한다.
+
+맥이 아닌 OS(리눅스·윈도우)는 컨테이너 Ollama를 쓸 수 있다:
+`make up-ollama` 후 `.env`에 `LLM_BASE_URL=http://ollama:11434/v1`,
+모델은 `docker compose -f infra/local/docker-compose.yml exec ollama ollama pull bge-m3`.
+
+## 실행 순서
+
+```bash
+cp .env.example .env              # 최소: POSTGRES_PASSWORD, DATABASE_URL, LOCAL_JWT_SECRET (아래 예시)
+make setup                        # (호스트) uv sync + npm ci — test/lint용
+
+make up                           # db·api·web 기동(헬스체크까지 대기)
+make migrate && make seed && make ingest
+open http://localhost:5173        # 로그인 → 질문
+
+make test                         # LLM_PROVIDER=fake, 별도 <DB>_test DB 사용
+make lint                         # ruff + eslint + prettier + tsc
+make demo                         # 대표 질문 6개(호스트 Ollama 필요)
+make eval                         # 평가 리포트(JSON + 표)
+make down                         # 중지(볼륨 유지)
+```
+
+Ollama 없이 전체를 돌려 보려면 `PROVIDER=fake`를 붙인다(fake LLM·fake 임베딩).
+
+```bash
+make up PROVIDER=fake && make migrate && make seed && make ingest PROVIDER=fake
+make demo PROVIDER=fake ; make eval PROVIDER=fake
+```
+
+> 임베딩 공급자를 바꾸면(fake ↔ bge-m3) `make ingest`가 모델 이름 차이를 감지해 다시 임베딩한다.
+> 같은 문서·같은 모델이면 `unchanged`로 건너뛴다(`ARGS="--force"`로 강제).
 
 ### 로컬 .env 예시
 
-비밀번호는 직접 생성한다(예: `openssl rand -hex 16`). compose 내부에서 api는 `postgres` 호스트로 접속하고,
-`make test`는 같은 값으로 `localhost` URL을 조합한다.
-
 ```dotenv
 APP_ENV=local
-CORS_ORIGINS=http://localhost:5173
 POSTGRES_USER=etf
-POSTGRES_PASSWORD=<생성한 값>
+POSTGRES_PASSWORD=<openssl rand -hex 16>
 POSTGRES_DB=etf_agent
-POSTGRES_PORT=5432
-DATABASE_URL=postgresql+asyncpg://etf:<생성한 값>@postgres:5432/etf_agent
+DATABASE_URL=postgresql+asyncpg://etf:<위 비밀번호>@db:5432/etf_agent
+LOCAL_JWT_SECRET=<openssl rand -hex 32>
 LLM_BASE_URL=http://host.docker.internal:11434/v1
+LLM_MODEL=midm-2.0-mini
 ```
 
-### EC2 배포(MVP)
+### 브라우저 사용
 
-```bash
-# .env: DATABASE_URL=Supabase Session pooler URL, CLOUDFLARE_TUNNEL_TOKEN 등
-docker compose -f infra/mvp/docker-compose.yml --env-file .env up -d --build   # api + cloudflared
-docker compose -f infra/mvp/docker-compose.yml --env-file .env run --rm --no-deps api alembic upgrade head
-```
+- `http://localhost:5173` → 이메일만 입력(dev-login, `APP_ENV=local`에서만 열림)
+- 질문하면 진행 상태(`질문을 이해하는 중` → `ETF 정보를 찾는 중` …) → 토큰 스트리밍 → 출처·고지 → 👍/👎/정정
+- 설명 수준(입문·중급·숙련) 선택, 대화 목록(멀티턴, 최근 `HISTORY_TURNS`턴)
+- `admin@local.test`(`ADMIN_EMAILS`)로 로그인하면 상단 **운영** 탭: 트레이스(의도·가드 필터), 피드백, 문서 업로드 → ingest → 검색 확인
 
-터널 ingress는 Zero Trust 대시보드에서 `http://api:8000`으로 설정한다. 로컬 관리 터널을 쓰려면
-`infra/mvp/cloudflared/config.example.yml` 참고.
+### make 타깃
 
-### 웹 환경변수
-
-`apps/web/.env.example`을 `apps/web/.env.local`로 복사한다. `VITE_` 변수는 번들에 포함되므로 공개 가능한 값만 둔다.
-
-| 변수 | 설명 |
+| 타깃 | 설명 |
 | --- | --- |
-| `VITE_API_BASE_URL` | FastAPI 베이스 URL |
-| `VITE_SUPABASE_URL` | Supabase 프로젝트 URL |
-| `VITE_SUPABASE_ANON_KEY` | Supabase anon(publishable) 키 |
+| `up` / `down` / `ps` / `logs` | 로컬 스택(db·api·web). api는 `--reload`, web은 Vite dev server |
+| `up-ollama` | 컨테이너 Ollama 포함(`ollama` 프로필) |
+| `migrate` / `seed` / `ingest` / `collect` | Alembic, 샘플 적재, 문서 적재(`ARGS="경로 --force"`), 공공데이터·DART 수집 |
+| `test` / `lint` / `fmt` | 호스트에서 실행 |
+| `eval` / `demo` | api 컨테이너에서 실행. `PROVIDER=fake` 지원, eval은 `ARGS="--with-judge --out r.json"` |
+| `pull-models` | 호스트 Ollama에 `bge-m3` 받기 |
+
+## API 요약
+
+| 메서드·경로 | 인증 | 설명 |
+| --- | --- | --- |
+| `GET /health` | - | DB 확인(실패 시 503) |
+| `POST /auth/dev-login` | - | `{email}` → JWT. `APP_ENV=local`·`AUTH_PROVIDER=local`에서만 |
+| `GET /auth/me` | 사용자 | 현재 사용자 |
+| `POST /chat` | 사용자 | SSE. 본문 `{message, conversation_id?, level}` |
+| `GET /history`, `GET /history/{id}` | 사용자 | 대화 목록·메시지 |
+| `POST /feedback` | 사용자 | `{kind: like\|dislike\|correction, message_id, correction_text?}` |
+| `GET /admin/traces?intent=&verdict=` | admin | 트레이스(질의 원문 없음) |
+| `GET /admin/feedback`, `GET/POST /admin/documents`, `GET /admin/search?q=` | admin | 피드백, 문서 목록·업로드(ingest), 검색 확인 |
+| `GET /metrics` | - | Prometheus 형식 |
+
+**SSE 이벤트 순서**: `status`(요청 즉시) → `status`… → `token`… → `sources` → `done`
+(`done`: `request_id`, `conversation_id`, `message_id`, `intents`, `guard{verdict, reasons}`, `latency_ms`).
+헤더 `Cache-Control: no-cache`, `X-Accel-Buffering: no`.
+
+**가드 판정(`verdict`)**: `pass` · `pass_after_retry`(1회 재생성 후 통과) · `blocked`(재생성 후에도 실패 → 안전 답변) ·
+`template`(고위험·추천·범위 밖 고정 답변) · `llm_unavailable`(LLM 실패, 폴백 없음 → 안전 답변) · `error`
 
 ## 환경변수
 
-정의는 `apps/api/app/settings.py`가 단일 출처다. 빈 값은 기본값으로 처리된다.
+정의는 `apps/api/app/settings.py`가 단일 출처다. 빈 값은 기본값, 셸 환경변수가 `.env`보다 우선한다.
 
-| 변수 | 필수 | 기본값 | 설명 |
-| --- | --- | --- | --- |
-| `APP_ENV` | | `local` | `local` \| `dev` \| `prod`. `local`은 콘솔 로그, 나머지는 JSON 로그 |
-| `LOG_LEVEL` | | `INFO` | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR` |
-| `CORS_ORIGINS` | | `http://localhost:5173` | 허용 오리진, 쉼표 구분 |
-| `DATABASE_URL` | ✅ | — | `postgresql+asyncpg://...` |
-| `SUPABASE_URL` | | — | Supabase 프로젝트 URL |
-| `SUPABASE_JWKS_URL` | | `SUPABASE_URL`에서 유도 | JWT 서명 JWKS URL |
-| `SUPABASE_JWT_SECRET` | | — | (선택) 레거시 HS256 시크릿 |
-| `LLM_PROVIDER` | | `openai_compat` | `openai_compat` \| `fake` |
-| `LLM_BASE_URL` | | `http://localhost:11434/v1` | OpenAI 호환 API 베이스 URL |
-| `LLM_API_KEY` | | — | (선택) OpenAI 호환 API 키 |
-| `LLM_MODEL` | | `qwen3:8b` | 답변 생성 모델 |
-| `JUDGE_MODEL` | | `qwen3:8b` | LLM-as-judge 모델 |
-| `EMBEDDING_MODEL` | | `bge-m3` | 임베딩 모델 |
-| `EMBEDDING_DIM` | | `1024` | 임베딩 차원(pgvector 컬럼과 일치) |
-| `FALLBACK_PROVIDER` | | `bedrock` | `bedrock` \| `none` |
-| `BEDROCK_REGION` | | `ap-northeast-2` | Bedrock 리전 |
-| `BEDROCK_MODEL_ID` | | — | Bedrock 모델/추론 프로파일 ID |
-| `FALLBACK_ALLOWED_INTENTS` | | `faq` | 폴백 허용 의도, 쉼표 구분 |
-| `AUTH_PROVIDER` | | `supabase` | `supabase` \| `cognito` |
-| `STORAGE_PROVIDER` | | `supabase` | `supabase` \| `s3` |
-| `TRACER` | | `pg` | `pg` \| `langfuse` |
-| `CF_ACCESS_TEAM_DOMAIN` | | — | Cloudflare Access 팀 도메인 |
-| `CF_ACCESS_AUD` | | — | Cloudflare Access AUD 태그 |
-| `DATA_GO_KR_API_KEY` | | — | 공공데이터포털 서비스 키 |
-| `DART_API_KEY` | | — | DART 오픈API 키 |
-
-인프라·도구 전용(앱 설정 아님):
-
-| 변수 | 사용처 | 설명 |
+| 변수 | 기본값 | 설명 |
 | --- | --- | --- |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `POSTGRES_PORT` | compose dev 프로필, `make test` | 로컬 pgvector 컨테이너 |
-| `TEST_DATABASE_URL` | `make test` | 비우면 `POSTGRES_*`로 localhost URL 조합 |
-| `CLOUDFLARE_TUNNEL_TOKEN` | compose `cloudflared` | 원격 관리 터널 토큰 |
+| `APP_ENV` | `local` | `local` \| `dev` \| `prod`. local: 콘솔 로그·dev-login 허용 |
+| `LOG_LEVEL` | `INFO` | |
+| `CORS_ORIGINS` | `http://localhost:5173` | 쉼표 구분 |
+| `DATABASE_URL` | **필수** | `postgresql+asyncpg://…@db:5432/…` |
+| `POSTGRES_USER/PASSWORD/DB/PORT` | `etf`/-/`etf_agent`/`5432` | 로컬 db 컨테이너 |
+| `TEST_DATABASE_URL` | `POSTGRES_*`로 조합 | `make test`. DB 이름 뒤에 `_test`를 붙인 DB를 새로 만든다 |
+| `AUTH_PROVIDER` | `local` | `local` \| `supabase`(스텁) \| `cognito`(스텁) |
+| `ADMIN_AUTH` | `local` | `local`(role=admin) \| `cf_access`(스텁) |
+| `LOCAL_JWT_SECRET` | local에서만 임의 생성 | local JWT 서명 키. local 외 환경에서는 필수 |
+| `LOCAL_JWT_TTL_MINUTES` | `720` | |
+| `ADMIN_EMAILS` | `admin@local.test` | dev-login 시 admin 역할 부여 |
+| `SUPABASE_URL` / `SUPABASE_JWKS_URL` / `SUPABASE_JWT_SECRET` | - | [나중] Supabase Auth |
+| `COGNITO_USER_POOL_ID` / `COGNITO_REGION` | - / `ap-northeast-2` | [나중] Cognito |
+| `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` | - | [나중] Cloudflare Access |
+| `LLM_PROVIDER` | `openai_compat` | `openai_compat`(Ollama·vLLM) \| `fake` |
+| `LLM_BASE_URL` | `http://host.docker.internal:11434/v1` | OpenAI 호환 `/v1` |
+| `LLM_API_KEY` | - | vLLM `--api-key` 대비 |
+| `LLM_MODEL` | `midm-2.0-mini` | 생성 모델 |
+| `JUDGE_MODEL` | = `LLM_MODEL` | 검증 모델 |
+| `LLM_TIMEOUT_SECONDS` / `LLM_MAX_TOKENS` / `LLM_TEMPERATURE` | `60` / `800` / `0.2` | |
+| `EMBEDDING_PROVIDER` | = `LLM_PROVIDER` | `openai_compat` \| `fake` |
+| `EMBEDDING_BASE_URL` | = `LLM_BASE_URL` | |
+| `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `bge-m3` / `1024` | 차원은 `chunks.embedding` 컬럼과 일치 |
+| `FALLBACK_PROVIDER` | `none` | `none` \| `bedrock`(스텁) |
+| `BEDROCK_REGION` / `BEDROCK_MODEL_ID` / `FALLBACK_ALLOWED_INTENTS` | `ap-northeast-2` / - / `faq` | [나중] 폴백 |
+| `STORAGE_PROVIDER` | `local` | `local` \| `supabase`(스텁) \| `s3`(스텁) |
+| `STORAGE_LOCAL_DIR` | `var/storage` (compose: `/data/storage` 볼륨) | |
+| `TRACER` | `pg` | `pg` \| `langfuse`(스텁) |
+| `HISTORY_TURNS` | `4` | 멀티턴 최근 N턴 |
+| `STREAM_TOKEN_DELAY_MS` | `0` | 토큰 이벤트 간 지연(타이핑 효과) |
+| `RAG_TOP_K` / `RAG_VECTOR_WEIGHT` / `RAG_MIN_SCORE` | `4` / `0.7` / `0.25` | 하이브리드 검색 상위 k, 벡터 가중치, 근거 최소 점수 |
+| `ENTITY_FUZZY_THRESHOLD` | `80` | ETF명 오타 허용 기준(rapidfuzz) |
+| `INQUIRY_CHANNEL` | 샘플 고객센터 문구 | 안전 답변·고위험 템플릿의 문의 채널 |
+| `DATA_GO_KR_API_KEY` / `DART_API_KEY` | - | 없으면 `make collect`가 안내만 출력 |
+| `EXTERNAL_TIMEOUT_SECONDS` | `15` | 공공데이터·DART 타임아웃 |
+| `VITE_API_BASE_URL` | `http://localhost:8000` | web(compose가 주입) |
+| `VITE_AUTH_MODE` | `local` | `local` \| `supabase`(미구현) |
 
-Bedrock 자격증명은 `.env`에 두지 않는다. EC2는 인스턴스 역할, 로컬은 셸의 `AWS_PROFILE`을 쓴다.
+## 기능 ID ↔ 코드 위치
+
+| 기능 ID | 내용 | 코드 |
+| --- | --- | --- |
+| P1-DA-01 | DB 스키마(pgvector·pg_trgm, HNSW·trgm 인덱스) | `apps/api/app/repositories/models.py`, `apps/api/migrations/versions/20261112_0002_core_schema.py`, `infra/local/db/init.sql` |
+| P1-DA-02 | 샘플 시드, 공공데이터포털·DART 수집 | `jobs/seed/`, `jobs/collector/`, `data/samples/` |
+| P1-DA-03 | 문서 ingest(문단 청킹·겹침, 재적재 갱신) | `apps/api/app/rag/ingest.py`, `apps/api/app/rag/chunker.py`, `jobs/ingest/` |
+| P1-AG-01 | 발화 전처리·ETF명 인식(rapidfuzz) | `apps/api/app/agents/preprocess/` |
+| P1-AG-02 | 오케스트레이터(LLM JSON → 키워드 규칙, 병렬 라우팅) | `apps/api/app/agents/orchestrator/`, `apps/api/app/agents/graph.py` |
+| P1-AG-03 | ETF 정보 에이전트·도구 | `apps/api/app/agents/etf_info/`, `apps/api/app/tools/{etf_search,price_lookup,compare}.py` |
+| P1-AG-04 | 지식·FAQ 에이전트(하이브리드 검색, 수준별) | `apps/api/app/agents/faq/`, `apps/api/app/rag/retriever.py`, `prompts/system/faq_*.md` |
+| P1-AG-05 | 공시 요약 에이전트 | `apps/api/app/agents/disclosure/`, `apps/api/app/tools/disclosure_lookup.py` |
+| P1-AG-06 | 답변 합성·컴플라이언스 가드·폴백 자리 | `apps/api/app/agents/compose/`, `apps/api/app/agents/guard/`, `prompts/guard/`, `prompts/templates/`, `apps/api/app/llm/router.py`, `apps/api/app/privacy/` |
+| P1-API-01 | dev-login, `/chat` SSE | `apps/api/app/routers/{auth,chat}.py`, `apps/api/app/services/chat.py`, `apps/api/app/auth/` |
+| P1-API-02 | 이력 | `apps/api/app/routers/history.py` |
+| P1-API-03 | 피드백 | `apps/api/app/routers/feedback.py` |
+| P1-API-04 | 운영 API(트레이스·피드백·업로드) | `apps/api/app/routers/admin.py`, `apps/api/app/deps.py`(require_admin), `apps/api/app/storage/` |
+| P1-API-05 | 캐시 | `apps/api/app/cache/__init__.py` |
+| P1-FE-01 | 로그인·대화 목록·채팅 | `apps/web/src/components/{Login,ChatView}.tsx`, `apps/web/src/lib/` |
+| P1-FE-02 | 상태·스트리밍·출처·고지·피드백·수준 선택 | `apps/web/src/components/{MessageView,Markdown}.tsx` |
+| P1-FE-03 | 운영 화면 | `apps/web/src/components/AdminView.tsx` |
+| P1-OP-01 | pg 트레이서(요청당 1행, 원문 없음) | `apps/api/app/observability/pg_tracer.py` |
+| P1-OP-02 | `/metrics` | `apps/api/app/observability/metrics.py`, `apps/api/app/main.py`(미들웨어) |
+| P1-OP-03 | 평가 CLI·데모 | `ml/eval/`, `data/eval-sets/`, `scripts/demo.py` |
+
+테스트: `apps/api/tests/` — 의도별 경로(`test_graph_routes.py`), SSE 순서·첫 status 즉시성(`test_chat_api.py`),
+금칙 표현·1회 재생성 후 안전 답변(`test_guard.py`), 트레이스 원문 미저장(`test_traces.py`), 오타·별칭 인식(`test_preprocess.py`).
+
+## 확장 지점 (배포 시 바꿀 설정·어댑터)
+
+| 영역 | 지금(로컬) | 나중 | 바꿀 설정 | 구현할 파일 |
+| --- | --- | --- | --- | --- |
+| DB | 로컬 Postgres 컨테이너 | Supabase(Session pooler 5432) → RDS | `DATABASE_URL` | 없음(마이그레이션이 `extensions` 스키마를 자동 감지) |
+| 인증 | local JWT(dev-login) | Supabase Auth → Cognito | `AUTH_PROVIDER`, `SUPABASE_*`/`COGNITO_*` | `app/auth/supabase_jwt.py`, `app/auth/cognito_jwt.py`, web `src/lib/auth.ts` |
+| 운영 화면 인증 | role=admin | Cloudflare Access | `ADMIN_AUTH=cf_access`, `CF_ACCESS_*` | `app/auth/cf_access.py` |
+| 파일 저장 | 로컬 볼륨 | Supabase Storage → S3 | `STORAGE_PROVIDER` | `app/storage/supabase_storage.py`, `app/storage/s3.py` |
+| LLM | Ollama(OpenAI 호환) | vLLM(같은 클라이언트) | `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | 없음 |
+| 폴백 | 없음(router 자리) | Bedrock | `FALLBACK_PROVIDER=bedrock`, `BEDROCK_*` | `app/llm/router.py`의 `BedrockLLM` |
+| 트레이스 | Postgres `traces` | Langfuse | `TRACER=langfuse` | `app/observability/langfuse_tracer.py` |
+| 메트릭 | `/metrics` 노출 | Grafana Cloud 수집 | — | 없음(수집기 설정만) |
+| 캐시 | 프로세스 TTLCache | (필요 시) Redis | — | `app/cache/__init__.py`(함수 시그니처 유지) |
+
+스텁은 모두 인터페이스를 구현하고 `NotImplementedError`를 던진다(API는 501로 응답).
+에이전트·도구·RAG(`agents/`, `tools/`, `rag/`)는 공급자 SDK를 import 하지 않는다.
+
+## 캐시 키 규칙 (cachetools TTLCache, 프로세스 단위)
+
+| 키 | TTL | 내용 |
+| --- | --- | --- |
+| `etf_master:all` | 1일 | 이름·별칭 사전(전처리) |
+| `etf:{ticker}` | 1일 | ETF 마스터 단건 |
+| `price:latest:{ticker}` | 1시간 | 최신 일별 시세 |
+| `faq:{level}:{sha256(정규화 질문)[:16]}` | 1시간 | **가드를 통과한** FAQ 답변. 이전 대화가 있는 질문·재생성 시도는 캐시하지 않음 |
+
+`make seed`·`make collect`는 전체를, ingest(업로드 포함)는 FAQ 캐시를 비운다. 키에는 질문 원문 대신 해시만 쓴다.
 
 ## 디렉토리
 
 ```
-apps/
-  web/                 Vite + React + TS SPA (Cloudflare Pages)
-  api/                 FastAPI 서버
-    app/
-      main.py          앱 팩토리, CORS, /health
-      settings.py      모든 환경변수(pydantic-settings)
-      db.py            async 엔진·세션, FastAPI 의존성, ORM Base
-      logging.py       structlog 설정
-      routers/         HTTP 라우터
-      agents/          LangGraph 에이전트
-      tools/           에이전트 도구
-      llm/             LLM 어댑터(OpenAI 호환·Bedrock·fake)
-      rag/             청킹·임베딩·벡터 검색
-      repositories/    SQLAlchemy 데이터 접근
-      auth/            인증 어댑터(Supabase/Cognito)
-      storage/         파일 저장소 어댑터(Supabase/S3)
-      observability/   트레이서 어댑터(pg/Langfuse)
-      cache/           인메모리 캐시
-      privacy/         개인정보 마스킹·보존
-    migrations/        Alembic(async env)
-    tests/
-jobs/collector/        외부 데이터 수집 배치
-jobs/ingest/           문서 파싱·임베딩 적재 배치
-ml/finetune/           파인튜닝
-ml/eval/               오프라인 평가
-prompts/               프롬프트 템플릿
-data/eval-sets/        평가 세트
-infra/mvp/             docker-compose.yml, cloudflared 예시 설정
-.github/               CI, PR 템플릿
+apps/api/app/   main.py settings.py db.py logging.py container.py deps.py
+                routers/ agents/ tools/ llm/ rag/ repositories/ auth/ storage/ observability/ cache/ privacy/ services/
+apps/api/       migrations/ tests/ pyproject.toml Dockerfile(빌드 컨텍스트: 레포 루트)
+apps/web/       Vite + React + TS
+jobs/           seed/ collector/ ingest/
+ml/eval/        평가 CLI
+prompts/        system/ guard/(rules.yaml, disclaimers.yaml, judge.md) templates/(high_risk/*.md 등)
+data/           samples/(시드·문서) eval-sets/(형식 예시 10줄씩)
+infra/local/    docker-compose.yml db/init.sql ollama/Modelfile.midm
+infra/mvp/      (참고) 이전 EC2 + cloudflared 배포 초안 — 이번 범위에서는 쓰지 않는다
+scripts/demo.py
 ```
 
 ## 결정 기록
 
 | 날짜 | 결정 | 이유 |
 | --- | --- | --- |
-| 2026-11-11 | Python 3.14 | 3.15는 막 출시돼 휠 생태계가 덜 갖춰졌고, 3.14는 1년간 안정화됐다 |
-| 2026-11-11 | 의존성 `==` 고정 + `uv.lock` 커밋, `package = false` | 라이브러리가 아닌 애플리케이션이라 재현성이 우선이다. 업데이트는 `uv lock --upgrade`로 PR을 만든다 |
-| 2026-11-11 | 로컬·CI Postgres는 `pgvector/pgvector:0.8.7-pg17` | Supabase 프로젝트의 Postgres 메이저 버전에 맞춘다. Supabase가 올라가면 함께 올린다 |
-| 2026-11-11 | pgvector는 `extensions` 스키마가 있으면 그곳에 생성 | Supabase 권장 방식이다. 로컬과 CI에는 그 스키마가 없어 기본 스키마에 생성한다 |
-| 2026-11-11 | `DATABASE_URL`은 asyncpg 스킴만 허용, Supabase는 Session pooler(5432) 또는 direct 연결 사용 | Transaction pooler(6543)는 asyncpg의 prepared statement와 충돌한다 |
-| 2026-11-11 | 설정은 `env_ignore_empty=True`, 목록 값은 쉼표 구분 | `.env.example`을 그대로 복사해도 기본값으로 동작하고, 목록을 JSON으로 쓰는 것보다 읽기 쉽다 |
-| 2026-11-11 | `LLM_API_KEY`(선택) 추가 | Ollama는 키가 필요 없지만 Phase 2 vLLM의 `--api-key`에 대비한다 |
-| 2026-11-11 | 기본 모델 `qwen3:8b` / 임베딩 `bge-m3` | bge-m3는 다국어(한국어) 모델이고 1024차원이라 `EMBEDDING_DIM`과 맞는다. LLM 기본값은 자리표시이며 평가 후 교체한다 |
-| 2026-11-11 | `SUPABASE_JWKS_URL`을 비우면 `SUPABASE_URL`에서 유도 | 설정 누락을 줄인다 |
-| 2026-11-11 | `/health`는 DB 실패 시 503 `degraded`, DB 체크 타임아웃 2초 | compose·로드밸런서 헬스체크가 DB 장애를 감지할 수 있다 |
-| 2026-11-11 | compose에서 `${VAR:?}` 필수 검사를 쓰지 않음 | compose는 프로필과 무관하게 파일 전체를 보간한다. 쓰면 로컬은 터널 토큰이, EC2는 `POSTGRES_*`가 없다는 이유로 실패한다 |
-| 2026-11-11 | 호스트 포트는 `127.0.0.1`에만 바인딩 | 외부 노출은 cloudflared가 전담한다 |
-| 2026-11-11 | cloudflared는 토큰 기반 원격 관리 터널 | 자격증명 파일을 서버에 둘 필요가 없다. 로컬 관리 방식은 예시 설정으로만 둔다 |
-| 2026-11-11 | 컨테이너 Ollama는 별도 `ollama` 프로필(`make dev-llm`) | 맥의 Docker에는 GPU가 없어서 네이티브 Ollama가 기본 경로다 |
-| 2026-11-11 | `make migrate`는 api 컨테이너에서, `make test`는 호스트에서 실행 | 마이그레이션은 로컬과 EC2가 같은 경로로 돌고, 테스트는 dev 의존성이 있는 로컬 venv가 필요하다 |
-| 2026-11-11 | 웹 패키지 매니저 npm | 별도 설치가 필요 없어 팀 진입장벽이 낮다 |
-| 2026-11-11 | TypeScript 6.0.x 고정 | typescript-eslint 8.72가 TS 7을 지원하지 않는다(`<6.1.0`). 지원되면 올린다 |
-| 2026-11-11 | create-vite 기본 oxlint 대신 ESLint + Prettier | 요구사항이다 |
-| 2026-11-11 | ruff 설정은 `apps/api/pyproject.toml`, pre-commit은 `--config`로 공유 | 지금은 Python 코드가 api에만 있다. jobs/ml에 pyproject가 생기면 루트 `ruff.toml`로 승격한다 |
-| 2026-11-11 | CI는 ruff → pytest → web 순서로 직렬 실행 | 요구사항의 순서를 따랐다. 시간이 문제가 되면 web job의 `needs`를 지워 병렬화한다 |
-| 2026-11-11 | api 이미지가 약 900MB | pymupdf 2.x가 onnxruntime과 numpy를 끌어온다. PDF 파싱이 jobs/ingest로만 가면 api 의존성에서 빼는 것을 검토한다 |
+| 2026-11-11 | Python 3.14, 의존성 `==` 고정 + `uv.lock` | 재현성 우선. 업데이트는 `uv lock --upgrade` |
+| 2026-11-11 | Postgres 이미지 `pgvector/pgvector:0.8.7-pg17-trixie`, 확장은 `extensions` 스키마가 있으면 그곳에 | Supabase 메이저 버전·권장 방식에 맞춘다 |
+| 2026-11-11 | `DATABASE_URL`은 asyncpg만, Supabase는 Session pooler(5432) | Transaction pooler는 asyncpg prepared statement와 충돌 |
+| 2026-11-11 | 설정은 `env_ignore_empty=True`, 목록 값은 쉼표 구분 | `.env.example`을 그대로 복사해도 기본값으로 동작 |
+| 2026-11-11 | 호스트 포트는 `127.0.0.1`에만 바인딩 | 로컬 개발 전용 |
+| 2026-11-12 | CI 워크플로(`.github/workflows/ci.yml`) 삭제 | 이번 범위에서 CI/CD 제외(요구사항) |
+| 2026-11-12 | 로컬 스택을 `infra/local`로 새로 만들고 db 서비스명 `db`(+ 네트워크 별칭 `postgres`) | 요구 구조를 따르면서 예전 `.env`의 `@postgres:5432`도 그대로 동작 |
+| 2026-11-12 | api 이미지 빌드 컨텍스트를 레포 루트로, 컨테이너도 `/workspace`에 레포 구조 그대로 | prompts·jobs·data·ml을 같은 상대 경로로 쓰고, 호스트·컨테이너의 ingest `source_uri`가 같아진다 |
+| 2026-11-12 | dev 모드는 레포 전체 바인드 마운트 + `uvicorn --reload`(app·prompts 감시) | 코드·프롬프트 수정이 바로 반영 |
+| 2026-11-12 | web 컨테이너는 `node_modules`를 전용 볼륨으로 두고 기동 시 `npm ci` | 호스트(macOS) 네이티브 바이너리와 섞이지 않게 |
+| 2026-11-12 | 기본값을 로컬 어댑터로(`AUTH=local`, `STORAGE=local`, `FALLBACK=none`, `TRACER=pg`) | `.env`를 거의 비워도 로컬에서 동작 |
+| 2026-11-12 | `LOCAL_JWT_SECRET`이 없으면 local 환경에서만 임의 생성, 그 외 환경은 기동 실패 | 키를 하드코딩하지 않으면서 첫 실행 마찰을 줄인다(재시작 시 재로그인 필요) |
+| 2026-11-12 | `admin@local.test`를 기본 admin 이메일로 | dev-login은 이메일만 받으므로 역할은 설정으로 정한다 |
+| 2026-11-12 | 기본 LLM `midm-2.0-mini`(Ollama 로컬 모델명), GGUF 미확보 시 `qwen3:4b` 등으로 교체 | 공식 Mini GGUF를 확인하지 못해 Modelfile 등록 방식과 대체 경로를 함께 둔다 |
+| 2026-11-12 | `EMBEDDING_PROVIDER`를 따로 둠(기본은 `LLM_PROVIDER`), 문서에 `embedding_model` 저장 | 임베딩 모델이 바뀌면 재임베딩을 감지하고, fake/실제 벡터가 섞이지 않게 |
+| 2026-11-12 | fake LLM의 분류 응답은 일부러 비-JSON | 키 없는 환경·테스트에서 키워드 규칙 대체 경로가 기본이 되고, JSON 경로는 스크립트 응답으로 테스트 |
+| 2026-11-12 | LangGraph로 그래프 구성, 복수 의도는 조건부 분기로 병렬 실행 후 compose에서 합류 | 이미 의존성에 있고 superstep 병렬·재시도 루프를 선언적으로 표현할 수 있다 |
+| 2026-11-12 | 고위험 > 추천 > 나머지 순서로 배타 처리, 고위험 키워드 규칙은 LLM 결과와 무관하게 항상 적용 | 분류 모델이 놓쳐도 고위험 질문이 생성 경로로 가지 않게 |
+| 2026-11-12 | 고위험이 섞인 복합 질문은 템플릿만 답한다 | 일부라도 생성하면 권유로 읽힐 수 있다(보수적 선택) |
+| 2026-11-12 | 답변 합성은 LLM 재작성 없이 섹션 결합 + 고지 | DB 수치·출처가 합성 단계에서 바뀌지 않게 |
+| 2026-11-12 | ETF 정보·공시는 DB 표·목록이 본문이고 LLM은 1~2문장 요약만, LLM 실패 시 요약 없이 답한다 | "숫자는 DB 값만" 원칙. Ollama가 없어도 정보 조회는 동작 |
+| 2026-11-12 | 재생성 시도에서는 ETF·공시 요약 문장을 빼고 DB 내용만 낸다 | 수치 오류의 원인이 요약 문장뿐이라 재생성 성공률이 높다 |
+| 2026-11-12 | 토큰은 가드 통과 후 최종 답변을 단어 단위로 나눠 스트리밍 | 검증 전 문장이 화면에 노출되지 않게(준법 우선). 체감 지연은 status 이벤트로 보완 |
+| 2026-11-12 | 답변 저장·트레이스는 토큰 전송 전에 기록 | 클라이언트가 중간에 끊어도 기록이 남는다 |
+| 2026-11-12 | 룰에서 걸리면 검증 모델을 부르지 않고, DB 표·목록만 있는 답변은 검증 모델을 생략 | 지연·비용 절감. 판정 대상은 LLM 생성 문장 |
+| 2026-11-12 | 검증 모델 JSON 파싱 실패·호출 실패는 통과(사유 `note:judge_*` 기록) | 룰은 이미 통과했고, 작은 로컬 모델의 형식 오류로 정상 답변이 막히는 것을 피한다. 운영 화면에서 추적 가능 |
+| 2026-11-12 | 근거 없는 수치 검사는 단위(%·원·배 등)가 붙거나 소수인 수치만, 날짜·티커·인용 번호 제외 | 일반 숫자까지 보면 오탐이 많다 |
+| 2026-11-12 | 금칙 표현은 고지 영역을 뺀 본문에만 적용하고, 부정형은 부정 전방탐색으로 제외 | "원금이 보장되지 않습니다" 같은 고지·설명이 걸리지 않게 |
+| 2026-11-12 | 트레이스 `intent`는 복수 의도를 `+`로 이어 저장, 필터는 배열 분해로 | 지정된 컬럼 목록을 유지하면서 복수 의도 필터 지원 |
+| 2026-11-12 | `etf_master.alias_text`(이름+별칭) 컬럼을 앱이 유지하고 trgm 인덱스 | 배열 컬럼은 trgm 인덱스를 바로 걸 수 없다(immutable 함수 필요) |
+| 2026-11-12 | 하이브리드 점수 = 0.7×코사인 + 0.3×`word_similarity`, 근거 최소 점수 0.25 | 짧은 한국어 질의는 `similarity`보다 `word_similarity`가 맞다. 값은 설정으로 조정 |
+| 2026-11-12 | 업로드 문서 키는 `uploads/{파일명}` | 같은 파일명을 다시 올리면 같은 문서로 갱신된다 |
+| 2026-11-12 | 마크다운은 의존성 없이 최소 렌더러로 표시 | 표·링크·목록만 필요하고, innerHTML을 쓰지 않아 XSS 위험이 없다 |
+| 2026-11-12 | 테스트는 `<DB>_test`를 세션마다 새로 만들어 마이그레이션·시드·ingest | 개발 DB를 오염시키지 않고 마이그레이션까지 검증 |
+| 2026-11-12 | ruff `E501` 끔 | 코드 줄은 formatter가 맞추고, 한글 주석은 폭 계산 때문에 오탐이 많다 |
+| 2026-11-12 | Makefile은 `-include .env` 대신 필요한 값만 `?=`로 읽음 | `-include`가 셸의 `LLM_PROVIDER=fake`를 빈 값으로 덮어쓰는 문제 |
+| 2026-11-12 | `boto3`·`sse-starlette` 의존성 제거, `rapidfuzz`·`pyyaml`·`prometheus-client`·`python-multipart` 추가 | 폴백 미구현이라 boto3 불필요, SSE는 StreamingResponse로 충분 |
+| 2026-11-12 | 샘플 종목코드는 실존하지 않는 `9000x0`, 운용사도 가상 이름 | 실제 상품으로 오인되지 않게 |
