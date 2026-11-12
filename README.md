@@ -10,6 +10,9 @@ ETF 질의응답 AI Agent의 MVP(Phase 1) 모노레포. **로컬 Docker에서 �
 
 > 상품·시세·공시·문서는 모두 개발용 **샘플** 데이터다(`data/samples`, 이름·설명에 '샘플' 표기).
 
+> 코멘토 2주차 실습 과제(Streamlit + LangChain + FAISS + GPT-4o RAG 프로토타입)는
+> [`my-rag-project/`](my-rag-project/README.md)에 독립 실행 형태로 있다(`streamlit run app.py`).
+
 ## 사전 준비
 
 | 도구 | 용도 | 비고 |
@@ -279,6 +282,7 @@ infra/local/    docker-compose.yml db/init.sql ollama/Modelfile.midm
 infra/aws/      고도화 버전 설정 예시(Bedrock, 자체 호스팅 vLLM, IAM 최소 권한)
 infra/mvp/      (참고) 이전 EC2 + cloudflared 배포 초안 — 이번 범위에서는 쓰지 않는다
 scripts/        demo.py run-fake.sh run-local.sh _common.sh
+my-rag-project/ 2주차 실습 RAG 프로토타입(.env, requirements.txt, rag_module.py, app.py)
 ```
 
 ## 결정 기록
@@ -331,3 +335,4 @@ scripts/        demo.py run-fake.sh run-local.sh _common.sh
 | 2026-11-12 | 일반 대화 모드는 `APP_ENV=local`에서만, 고위험·ETF 추천 템플릿과 금칙·개인정보 룰은 유지 | 개인용으로 열되 배포 서비스의 준법 경로는 바뀌지 않게 |
 | 2026-11-12 | 일반 대화는 정규화본 대신 원문을 모델에 보낸다 | 정규화가 기호·줄바꿈을 지워 코드·서식이 깨진다. 원문은 메모리에서만 쓰고 저장은 마스킹본 |
 | 2026-11-12 | 근거 없는 답변(일반 대화)은 수치 대조·검증 모델을 건너뛴다 | 대조할 근거가 없어 모든 수치가 오탐이 된다. 금칙 표현·개인정보 룰은 적용 |
+| 2026-11-12 | 2주차 실습 과제는 `my-rag-project/`에 가이드 구조 그대로(Streamlit·LangChain·FAISS·GPT-4o) 독립 프로젝트로 둔다 | 과제 요구 구조·스택을 지키면서 본 MVP(`apps/`)와 의존성이 섞이지 않게 |
