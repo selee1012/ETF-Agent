@@ -5,7 +5,7 @@ from dataclasses import replace
 
 from app import cache
 from app.agents import general
-from app.agents.common import LEVEL_LABEL, history_text, retry_note
+from app.agents.common import history_text, retry_note
 from app.agents.prompts import load_text
 from app.agents.state import AgentDeps, AgentResult, GraphState, Intent, Level, Source
 from app.llm.base import ChatMessage
@@ -13,7 +13,9 @@ from app.rag.retriever import RetrievedChunk, hybrid_search
 
 NAME = "faq"
 NO_ANSWER = "제공된 자료로는 답하기 어렵습니다."
-_CITE = re.compile(r"\[(\d{1,2})\]")
+# 인용 표시: [1], [1][2], [1, 2] 모두 허용. 출처 목록을 고르는 데만 쓰고 본문에서는 지운다.
+_CITE = re.compile(r"\[(\d{1,2}(?:\s*,\s*\d{1,2})*)\]")
+_CITE_STRIP = re.compile(r"[ \t]*\[\d{1,2}(?:\s*,\s*\d{1,2})*\]")
 
 
 def _evidence_block(chunks: list[RetrievedChunk]) -> str:
@@ -23,8 +25,14 @@ def _evidence_block(chunks: list[RetrievedChunk]) -> str:
 
 
 def _cited(text: str, n: int) -> list[int]:
-    nums = sorted({int(m) for m in _CITE.findall(text) if 1 <= int(m) <= n})
+    found = {int(x) for group in _CITE.findall(text) for x in re.findall(r"\d+", group)}
+    nums = sorted(x for x in found if 1 <= x <= n)
     return nums or list(range(1, n + 1))
+
+
+def strip_citations(text: str) -> str:
+    """화면용: 본문의 [n] 인용 표시를 지운다(출처는 출처 목록으로 따로 보여 준다)."""
+    return _CITE_STRIP.sub("", text).strip()
 
 
 async def _no_evidence(
@@ -95,7 +103,7 @@ async def run(state: GraphState, deps: AgentDeps) -> AgentResult:
     uniq = list({(x.title, x.location): x for x in sources}.values())
     result = AgentResult(
         agent=NAME,
-        content=f"{answer}\n\n_설명 수준: {LEVEL_LABEL.get(level, level)}_",
+        content=strip_citations(answer),
         sources=uniq,
         evidence=[c.content for c in chunks],
         retrieved_ids=[f"doc:{c.document_id}#chunk:{c.chunk_id}" for c in chunks],

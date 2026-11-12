@@ -111,7 +111,7 @@ class Settings(BaseSettings):
     llm_model: str = "midm-2.0-mini"
     judge_model: str | None = None  # 비우면 llm_model과 같음
     llm_timeout_seconds: float = Field(default=60.0, gt=0)
-    llm_max_tokens: int = Field(default=800, gt=0)
+    llm_max_tokens: int = Field(default=1200, gt=0)  # FAQ 상세 설명 기준
     llm_temperature: float = Field(default=0.2, ge=0, le=2)
     # OpenAI API 최신 모델(gpt-5·o 계열) 호환: max_tokens 대신 max_completion_tokens, 온도 생략
     openai_max_tokens_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"

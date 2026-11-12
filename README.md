@@ -186,7 +186,7 @@ LLM_MODEL=midm-2.0-mini
 | `LLM_API_KEY` | - | OpenAI API 키(`.env.local`에만), vLLM `--api-key` |
 | `LLM_MODEL` | `midm-2.0-mini` | 생성 모델(bedrock이면 모델 ID·추론 프로필 ID) |
 | `JUDGE_MODEL` | = `LLM_MODEL` | 검증 모델 |
-| `LLM_TIMEOUT_SECONDS` / `LLM_MAX_TOKENS` / `LLM_TEMPERATURE` | `60` / `800` / `0.2` | |
+| `LLM_TIMEOUT_SECONDS` / `LLM_MAX_TOKENS` / `LLM_TEMPERATURE` | `60` / `1200` / `0.2` | 최대 토큰은 FAQ 상세 설명 기준 |
 | `OPENAI_MAX_TOKENS_PARAM` / `OPENAI_OMIT_TEMPERATURE` | `max_tokens` / `false` | OpenAI gpt-5·o 계열: `max_completion_tokens` / `true` |
 | `EMBEDDING_PROVIDER` | = `LLM_PROVIDER` | `openai_compat` \| `bedrock` \| `fake` |
 | `EMBEDDING_BASE_URL` | = `LLM_BASE_URL` | |

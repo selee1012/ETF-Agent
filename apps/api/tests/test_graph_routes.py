@@ -42,7 +42,8 @@ async def test_faq_answers_with_sources(deps: AgentDeps) -> None:
     assert st["intents"] == ["faq"]
     assert st["verdict"] == "pass"
     assert st["sources"] and st["sources"][0].title == "[샘플] 괴리율과 추적오차"
-    assert "_설명 수준: 입문_" in st["answer"]
+    assert "설명 수준" not in st["answer"]  # 수준은 프로필로 정하고 답변에 표시하지 않는다
+    assert "[1]" not in st["answer"]  # 인용 번호는 출처 목록으로만
 
 
 async def test_faq_says_unknown_without_evidence(deps: AgentDeps) -> None:
@@ -119,3 +120,12 @@ async def test_llm_down_etf_info_still_answers_from_db(deps: AgentDeps, fake_llm
     st = await ask(deps, "샘플 코스피200 시세")
     assert st["verdict"] == "pass"
     assert "36,180원" in st["answer"]
+
+
+def test_strip_citations_and_cited_formats() -> None:
+    from app.agents.faq import _cited, strip_citations
+
+    text = "괴리율은 가격 차이입니다 [1]. 확인이 필요합니다.[2][3]\n- 항목 [1, 4]"
+    assert strip_citations(text) == "괴리율은 가격 차이입니다. 확인이 필요합니다.\n- 항목"
+    assert _cited(text, 4) == [1, 2, 3, 4]
+    assert _cited("인용 없음", 2) == [1, 2]
