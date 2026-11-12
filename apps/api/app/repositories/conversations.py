@@ -28,6 +28,15 @@ async def get_user(session: AsyncSession, user_id: uuid.UUID) -> User | None:
     return await session.get(User, user_id)
 
 
+async def set_user_level(session: AsyncSession, user_id: uuid.UUID, level: str) -> User | None:
+    user = await session.get(User, user_id)
+    if user is None:
+        return None
+    user.level = level
+    await session.commit()
+    return user
+
+
 async def get_or_create_conversation(
     session: AsyncSession, user_id: uuid.UUID, conversation_id: uuid.UUID | None, first_query: str
 ) -> Conversation:

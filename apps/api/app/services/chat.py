@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.graph import run_graph
 from app.agents.guard.templates import safe_answer
@@ -34,7 +35,8 @@ _TOKEN_RE = re.compile(r"\S+\s*|\s+")
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     conversation_id: uuid.UUID | None = None
-    level: Level = Level.BEGINNER
+    # 없으면 사용자 프로필의 설명 수준, 프로필도 비어 있으면 입문 # P1-API-01
+    level: Level | None = None
 
 
 def sse(event: str, data: dict[str, Any]) -> str:
@@ -48,6 +50,11 @@ def split_tokens(text: str) -> list[str]:
 def _public_reasons(reasons: list[str]) -> list[str]:
     """done 이벤트에는 사유 코드만 보낸다(수치·문구 원문 제외)."""
     return sorted({r.split(":", 2)[0] + ":" + r.split(":", 2)[1] for r in reasons if ":" in r})
+
+
+async def _profile_level(session: AsyncSession, principal: Principal) -> Level:
+    user = await conv_repo.get_user(session, principal.user_id)
+    return Level(user.level) if user is not None and user.level else Level.BEGINNER
 
 
 async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> AsyncIterator[str]:
@@ -66,9 +73,10 @@ async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> A
             session, principal.user_id, req.conversation_id, req.message
         )
         history_rows = await conv_repo.recent_messages(session, conv.id, c.settings.history_turns)
+        level = req.level or await _profile_level(session, principal)
         await conv_repo.add_message(
             session, conversation_id=conv.id, role="user", content=req.message,
-            request_id=request_id, meta={"level": req.level.value},
+            request_id=request_id, meta={"level": level.value},
         )  # fmt: skip
         await session.commit()
     history = [{"role": m.role, "content": m.content} for m in history_rows]
@@ -84,7 +92,7 @@ async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> A
             deps,
             request_id=request_id,
             query=req.message,
-            level=req.level.value,
+            level=level.value,
             history=history,
             context_tickers=context_tickers,
         )
@@ -143,7 +151,7 @@ async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> A
                 intent="+".join(intents) or None,
                 guard_verdict=verdict,
                 sources=sources,
-                meta={"tickers": entities, "level": req.level.value},
+                meta={"tickers": entities, "level": level.value},
             )
             await conv_repo.touch_conversation(session, conv)
             await session.commit()

@@ -134,6 +134,8 @@ class User(TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     role: Mapped[str] = mapped_column(String(16), server_default="user", nullable=False)
+    # 설명 수준(beginner|intermediate|expert). NULL = 아직 고르지 않음 # P1-API-01
+    level: Mapped[str | None] = mapped_column(String(16))
 
 
 class Conversation(TimestampMixin, Base):
