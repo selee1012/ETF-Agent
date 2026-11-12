@@ -79,3 +79,43 @@ async def test_embedding_dimensions_flag():
         assert out == [[0.6, 0.8]]
         got = cap.kwargs["dimensions"]
         assert (got if isinstance(got, int) else None) == expected
+
+
+async def test_unsupported_reasoning_effort_is_dropped_and_retried():
+    import httpx
+    import openai
+
+    calls: list[dict] = []
+
+    async def create(**kwargs):
+        calls.append(kwargs)
+        if "reasoning_effort" in kwargs:
+            resp = httpx.Response(400, request=httpx.Request("POST", "http://x/v1"))
+            raise openai.BadRequestError(
+                "Unsupported value: 'reasoning_effort' does not support 'none'",
+                response=resp,
+                body=None,
+            )
+        return _chat_result("답")
+
+    llm, _ = _llm(
+        max_tokens_param="max_completion_tokens", omit_temperature=True, reasoning_effort="none"
+    )
+    llm._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    assert (await llm.complete([ChatMessage("user", "q")])).text == "답"
+    assert (await llm.complete([ChatMessage("user", "q")])).text == "답"
+    # 처음 1번만 거부되고, 이후 호출은 옵션 없이 바로 보낸다
+    assert ["reasoning_effort" in c for c in calls] == [True, False, False]
+
+
+def test_reasoning_effort_off_is_not_sent(clean_env):
+    from app.llm import build_llm
+    from app.settings import Settings
+
+    clean_env.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/db")
+    clean_env.setenv("LLM_PROVIDER", "openai_compat")
+    clean_env.setenv("OPENAI_REASONING_EFFORT", "off")
+    llm = build_llm(Settings(_env_file=None))  # type: ignore[call-arg]
+    assert llm.primary._reasoning_effort is None
+    clean_env.setenv("OPENAI_REASONING_EFFORT", "none")
+    assert build_llm(Settings(_env_file=None)).primary._reasoning_effort == "none"  # type: ignore[call-arg]

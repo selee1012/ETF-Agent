@@ -20,37 +20,16 @@ ETF 질의응답 AI Agent의 MVP(Phase 1) 모노레포. **로컬 Docker에서 �
 | Docker + Compose v2.24+ | db·api·web 실행 | 맥은 Docker Desktop 또는 colima(`colima start`) |
 | [uv](https://docs.astral.sh/uv/) | 호스트에서 `make test`·`make lint` | Python 3.14는 uv가 받는다 |
 | Node.js 24 (`.nvmrc`) | 호스트에서 `make lint`(eslint·prettier·tsc) | web 컨테이너는 자체 Node 사용 |
-| [Ollama](https://ollama.com) (호스트) | LLM·임베딩 | 맥 Docker는 GPU 가속이 안 되므로 **호스트에서 실행** |
+| OpenAI API 키 | LLM·임베딩(로컬 기본) | `.env` 또는 `.env.local`의 `LLM_API_KEY`. 키 없이 돌리려면 `PROVIDER=fake` |
 
-### 모델 받기 (자동으로 받지 않는다)
+### 모델
 
-```bash
-ollama serve                       # 앱으로 설치했다면 이미 떠 있음
-make pull-models                   # = ollama pull bge-m3 (임베딩, 1024차원)
-```
+로컬 기본은 OpenAI API의 가장 가벼운 추론형 모델 `gpt-5.4-nano`(생각 분량 `OPENAI_REASONING_EFFORT=none`)와
+임베딩 `text-embedding-3-small`(`dimensions=1024`)이다. 큰 모델 대신 **프롬프트와 RAG(미리 넣어 둔 문서)** 로
+답변 품질을 맞추고 응답 속도를 우선한다. 품질이 부족하면 `LLM_MODEL=gpt-5.4-mini`로 올린다.
+질문과 검색된 문서 일부가 OpenAI로 전송된다는 점에 주의한다.
 
-생성 모델 기본값은 `LLM_MODEL=midm-2.0-mini`(KT Mi:dm 2.0 Mini)이다. 공식 저장소
-[K-intelligence/Midm-2.0-Mini-Instruct](https://huggingface.co/K-intelligence/Midm-2.0-Mini-Instruct/tree/main)
-는 safetensors로 배포되며, 작성 시점에 공식 Mini GGUF는 확인하지 못했다(Base 모델은 커뮤니티 GGUF가 있다).
-둘 중 하나로 준비한다.
-
-1. **Mi:dm 2.0 Mini GGUF 등록** — Hugging Face에서 커뮤니티 GGUF(`Midm-2.0-Mini-Instruct GGUF` 검색)를 받거나
-   llama.cpp의 `convert_hf_to_gguf.py`로 직접 변환한 뒤:
-   ```bash
-   cp <받은파일>.gguf infra/local/ollama/midm-2.0-mini-instruct-q4_k_m.gguf   # *.gguf는 git 제외
-   ollama create midm-2.0-mini -f infra/local/ollama/Modelfile.midm
-   ```
-2. **대체 모델** — 바로 쓸 수 있는 한국어 가능 모델을 받고 `.env`의 `LLM_MODEL`만 바꾼다.
-   ```bash
-   ollama pull gemma3:12b        # 또는 exaone3.5:7.8b(비상업 라이선스), qwen3:4b 등
-   # .env(.local): LLM_MODEL=gemma3:12b  (JUDGE_MODEL을 비우면 같은 모델로 검증)
-   ```
-   추론형 모델이 내는 `<think>…</think>`는 어댑터가 제거한다.
-   임베딩도 `snowflake-arctic-embed2`(1024차원, 다국어)로 바꿀 수 있다(`EMBEDDING_MODEL`).
-
-맥이 아닌 OS(리눅스·윈도우)는 컨테이너 Ollama를 쓸 수 있다:
-`make up-ollama` 후 `.env`에 `LLM_BASE_URL=http://ollama:11434/v1`,
-모델은 `docker compose -f infra/local/docker-compose.yml exec ollama ollama pull bge-m3`.
+고도화(AWS Bedrock·자체 호스팅 vLLM) 설정은 [`infra/aws/README.md`](infra/aws/README.md)를 본다.
 
 ## 실행 순서
 
@@ -64,26 +43,26 @@ open http://localhost:5173        # 로그인 → 질문
 
 make test                         # LLM_PROVIDER=fake, 별도 <DB>_test DB 사용
 make lint                         # ruff + eslint + prettier + tsc
-make demo                         # 대표 질문 6개(호스트 Ollama 필요)
+make demo                         # 대표 질문 6개(LLM_API_KEY 필요)
 make eval                         # 평가 리포트(JSON + 표)
 make down                         # 중지(볼륨 유지)
 ```
 
-Ollama 없이 전체를 돌려 보려면 `PROVIDER=fake`를 붙인다(fake LLM·fake 임베딩).
+API 키 없이 전체를 돌려 보려면 `PROVIDER=fake`를 붙인다(fake LLM·fake 임베딩).
 
 ```bash
 make up PROVIDER=fake && make migrate && make seed && make ingest PROVIDER=fake
 make demo PROVIDER=fake ; make eval PROVIDER=fake
 ```
 
-> 임베딩 공급자를 바꾸면(fake ↔ bge-m3) `make ingest`가 모델 이름 차이를 감지해 다시 임베딩한다.
+> 임베딩 모델을 바꾸면(fake ↔ text-embedding-3-small 등) `make ingest`가 모델 이름 차이를 감지해 다시 임베딩한다.
 > 같은 문서·같은 모델이면 `unchanged`로 건너뛴다(`ARGS="--force"`로 강제).
 
 ### 한 줄 실행 스크립트
 
 ```bash
-./scripts/run-fake.sh     # Ollama 없이(fake LLM·임베딩). demo | eval | test | down 하위 명령
-./scripts/run-local.sh    # .env.local의 실제 모델로(Ollama면 모델 확인·다운로드까지). down | logs
+./scripts/run-fake.sh     # API 키 없이(fake LLM·임베딩). demo | eval | test | down 하위 명령
+./scripts/run-local.sh    # .env.local의 실제 모델로(기본 OpenAI, 키 확인까지). down | logs
 ```
 
 두 스크립트 모두 `.env`가 없으면 `.env.example`로 만들고 DB 비밀번호·JWT 키를 무작위로 채운 뒤
@@ -94,10 +73,12 @@ make demo PROVIDER=fake ; make eval PROVIDER=fake
 `.env.local`은 `.env` 뒤에 읽혀 같은 이름의 값을 덮는다(앱 설정·compose·Makefile 모두 같은 순서).
 개인 API 키나 모델 선택은 여기에 둔다. `run-local.sh`가 없으면 `.env.local.example`로 만든다.
 
-| 방식 | 설정 | 비고 |
+| 항목 | 기본값(.env.local.example) | 비고 |
 | --- | --- | --- |
-| Ollama(기본) | `LLM_MODEL=gemma3:12b`, `EMBEDDING_MODEL=snowflake-arctic-embed2` | 질의가 이 Mac 밖으로 나가지 않는다 |
-| OpenAI API | `LLM_BASE_URL=https://api.openai.com/v1`, `LLM_API_KEY`, `EMBEDDING_REQUEST_DIMENSIONS=true` | 질의가 OpenAI로 전송된다. gpt-5·o 계열은 `OPENAI_MAX_TOKENS_PARAM`·`OPENAI_OMIT_TEMPERATURE` |
+| 생성·검증 모델 | `LLM_MODEL=gpt-5.4-nano`, `JUDGE_MODEL=gpt-5.4-nano` | `.env`에 큰 모델이 있어도 덮는다 |
+| 생각 분량 | `OPENAI_REASONING_EFFORT=none` | 가장 빠름. 모델이 값을 거부하면 어댑터가 옵션을 빼고 다시 호출한다 |
+| 임베딩 | `EMBEDDING_MODEL=text-embedding-3-small`, `EMBEDDING_DIM=1024`, `EMBEDDING_REQUEST_DIMENSIONS=true` | 모델을 바꾸면 ingest가 다시 임베딩 |
+| 키 | `LLM_API_KEY` | `.env`에 있으면 `.env.local`에서는 주석으로 둔다 |
 
 **일반 대화 모드**(`GENERAL_CHAT_ENABLED=true`, `APP_ENV=local` 전용) — 개인용 ChatGPT처럼 쓴다.
 
@@ -118,8 +99,7 @@ POSTGRES_PASSWORD=<openssl rand -hex 16>
 POSTGRES_DB=etf_agent
 DATABASE_URL=postgresql+asyncpg://etf:<위 비밀번호>@db:5432/etf_agent
 LOCAL_JWT_SECRET=<openssl rand -hex 32>
-LLM_BASE_URL=http://host.docker.internal:11434/v1
-LLM_MODEL=midm-2.0-mini
+LLM_API_KEY=<OpenAI API 키>
 ```
 
 ### 브라우저 사용
@@ -135,11 +115,9 @@ LLM_MODEL=midm-2.0-mini
 | 타깃 | 설명 |
 | --- | --- |
 | `up` / `down` / `ps` / `logs` | 로컬 스택(db·api·web). api는 `--reload`, web은 Vite dev server |
-| `up-ollama` | 컨테이너 Ollama 포함(`ollama` 프로필) |
 | `migrate` / `seed` / `ingest` / `collect` | Alembic, 샘플 적재, 문서 적재(`ARGS="경로 --force"`), 공공데이터·DART 수집 |
 | `test` / `lint` / `fmt` | 호스트에서 실행 |
 | `eval` / `demo` | api 컨테이너에서 실행. `PROVIDER=fake` 지원, eval은 `ARGS="--with-judge --out r.json"` |
-| `pull-models` | 호스트 Ollama에 `.env`(`.local`)의 `EMBEDDING_MODEL`·`LLM_MODEL` 받기 |
 
 ## API 요약
 
@@ -184,18 +162,18 @@ LLM_MODEL=midm-2.0-mini
 | `SUPABASE_URL` / `SUPABASE_JWKS_URL` / `SUPABASE_JWT_SECRET` | - | [나중] Supabase Auth |
 | `COGNITO_USER_POOL_ID` / `COGNITO_REGION` | - / `ap-northeast-2` | [나중] Cognito |
 | `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` | - | [나중] Cloudflare Access |
-| `LLM_PROVIDER` | `openai_compat` | `openai_compat`(Ollama·vLLM·OpenAI API) \| `bedrock` \| `fake` |
-| `LLM_BASE_URL` | `http://host.docker.internal:11434/v1` | OpenAI 호환 `/v1` |
-| `LLM_API_KEY` | - | OpenAI API 키(`.env.local`에만), vLLM `--api-key` |
-| `LLM_MODEL` | `midm-2.0-mini` | 생성 모델(bedrock이면 모델 ID·추론 프로필 ID) |
+| `LLM_PROVIDER` | `openai_compat` | `openai_compat`(OpenAI API·vLLM 등) \| `bedrock` \| `fake` |
+| `LLM_BASE_URL` | `https://api.openai.com/v1` | OpenAI 호환 `/v1` |
+| `LLM_API_KEY` | - | OpenAI API 키(`.env`·`.env.local`에만), vLLM `--api-key` |
+| `LLM_MODEL` | `gpt-5.4-nano` | 생성 모델(bedrock이면 모델 ID·추론 프로필 ID) |
 | `JUDGE_MODEL` | = `LLM_MODEL` | 검증 모델 |
 | `LLM_TIMEOUT_SECONDS` / `LLM_MAX_TOKENS` / `LLM_TEMPERATURE` | `60` / `1200` / `0.2` | 최대 토큰은 FAQ 상세 설명 기준 |
-| `OPENAI_MAX_TOKENS_PARAM` / `OPENAI_OMIT_TEMPERATURE` | `max_tokens` / `false` | OpenAI gpt-5·o 계열: `max_completion_tokens` / `true` |
-| `OPENAI_REASONING_EFFORT` | (빈 값) | gpt-5 계열 생각 분량. 빠른 응답이면 `none`(5.1+)·`minimal`(5) |
+| `OPENAI_MAX_TOKENS_PARAM` / `OPENAI_OMIT_TEMPERATURE` | `max_completion_tokens` / `true` | OpenAI gpt-5 계열 형식. vLLM 등은 `max_tokens` / `false` |
+| `OPENAI_REASONING_EFFORT` | `none` | 생각 분량 `off`\|`none`\|`minimal`\|`low`\|`medium`\|`high`. `none`이 가장 빠름(gpt-5.0은 `minimal`), `off`는 옵션 미전송 |
 | `EMBEDDING_PROVIDER` | = `LLM_PROVIDER` | `openai_compat` \| `bedrock` \| `fake` |
 | `EMBEDDING_BASE_URL` | = `LLM_BASE_URL` | |
-| `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `bge-m3` / `1024` | 차원은 `chunks.embedding` 컬럼과 일치. bedrock: `amazon.titan-embed-text-v2:0` |
-| `EMBEDDING_REQUEST_DIMENSIONS` | `false` | 임베딩 요청에 `dimensions` 전송(OpenAI text-embedding-3) |
+| `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `text-embedding-3-small` / `1024` | 차원은 `chunks.embedding` 컬럼과 일치. bedrock: `amazon.titan-embed-text-v2:0` |
+| `EMBEDDING_REQUEST_DIMENSIONS` | `true` | 임베딩 요청에 `dimensions` 전송(OpenAI text-embedding-3) |
 | `BEDROCK_REGION` / `BEDROCK_PROFILE` | `ap-northeast-2` / - | Bedrock 리전, (로컬 시험용) `~/.aws` 프로필. 자격 증명은 boto3 기본 체인 |
 | `FALLBACK_PROVIDER` | `none` | `none` \| `bedrock` |
 | `BEDROCK_MODEL_ID` / `FALLBACK_ALLOWED_INTENTS` | - / `faq` | 폴백 모델 ID(bedrock이면 필수), 폴백 허용 의도 |
@@ -250,8 +228,8 @@ Bedrock 요청 형식·폴백·SDK import 경계(`test_bedrock.py`), 일반 대�
 | 인증 | local JWT(dev-login) | Supabase Auth → Cognito | `AUTH_PROVIDER`, `SUPABASE_*`/`COGNITO_*` | `app/auth/supabase_jwt.py`, `app/auth/cognito_jwt.py`, web `src/lib/auth.ts` |
 | 운영 화면 인증 | role=admin | Cloudflare Access | `ADMIN_AUTH=cf_access`, `CF_ACCESS_*` | `app/auth/cf_access.py` |
 | 파일 저장 | 로컬 볼륨 | Supabase Storage → S3 | `STORAGE_PROVIDER` | `app/storage/supabase_storage.py`, `app/storage/s3.py` |
-| LLM | Ollama(OpenAI 호환) | **Bedrock** 또는 AWS 자체 호스팅 vLLM | `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_MODEL` (`infra/aws/`) | 없음(구현됨: `app/llm/bedrock.py`) |
-| 임베딩 | Ollama bge-m3 등 | Bedrock Titan v2 | `EMBEDDING_PROVIDER=bedrock`, `EMBEDDING_MODEL` | 없음(구현됨) |
+| LLM | OpenAI API(`gpt-5.4-nano`) | **Bedrock** 또는 AWS 자체 호스팅 vLLM | `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_MODEL` (`infra/aws/`) | 없음(구현됨: `app/llm/bedrock.py`) |
+| 임베딩 | OpenAI `text-embedding-3-small`(1024차원) | Bedrock Titan v2 | `EMBEDDING_PROVIDER=bedrock`, `EMBEDDING_MODEL` | 없음(구현됨) |
 | 폴백 | 없음 | Bedrock | `FALLBACK_PROVIDER=bedrock`, `BEDROCK_MODEL_ID` | 없음(구현됨) |
 | 트레이스 | Postgres `traces` | Langfuse | `TRACER=langfuse` | `app/observability/langfuse_tracer.py` |
 | 메트릭 | `/metrics` 노출 | Grafana Cloud 수집 | — | 없음(수집기 설정만) |
@@ -282,7 +260,7 @@ jobs/           seed/ collector/ ingest/
 ml/eval/        평가 CLI
 prompts/        system/ guard/(rules.yaml, disclaimers.yaml, judge.md) templates/(high_risk/*.md 등)
 data/           samples/(시드·문서) eval-sets/(형식 예시 10줄씩)
-infra/local/    docker-compose.yml db/init.sql ollama/Modelfile.midm
+infra/local/    docker-compose.yml db/init.sql
 infra/aws/      고도화 버전 설정 예시(Bedrock, 자체 호스팅 vLLM, IAM 최소 권한)
 infra/mvp/      (참고) 이전 EC2 + cloudflared 배포 초안 — 이번 범위에서는 쓰지 않는다
 scripts/        demo.py run-fake.sh run-local.sh _common.sh
@@ -335,6 +313,8 @@ my-rag-project/ 2주차 실습 RAG 프로토타입(.env, requirements.txt, rag_m
 | 2026-11-12 | 답변 본문의 근거 번호 `[n]`·'설명 수준' 표시는 화면에서 지우고, 출처 목록만 보인다 | 번호는 출처를 고르는 데만 쓰고, 읽을 때는 방해가 된다 |
 | 2026-11-12 | 답변의 의도·가드 판정은 화면에 보이지 않고 운영 화면 트레이스에서만 본다 | 사용자에게는 의미 없는 내부 정보 |
 | 2026-11-12 | 대화 삭제 시 메시지는 지우고 피드백(`message_id`→NULL)·트레이스는 남긴다 | 사용자 데이터는 지우되, 원문 없는 운영 지표는 품질 관리에 필요 |
+| 2026-11-12 | 로컬 기본 모델을 Ollama(gemma3:12b)에서 OpenAI `gpt-5.4-nano` + 생각 분량 `none`으로, Ollama 실행 도구(compose 프로필·pull-models·Modelfile)는 제거 | 이 Mac에서 12b는 초당 약 16토큰이라 상세 답변에 40초 이상 걸린다. 10초 이내 목표, 품질은 프롬프트·RAG로 보강. Ollama가 다시 필요하면 같은 openai_compat 어댑터로 주소만 바꾸면 된다 |
+| 2026-11-12 | 생각 분량 기본 `none`, 모델이 거부하면 옵션을 빼고 1회 재호출 후 이후 생략 | 크레딧 없이 모델별 지원 여부를 미리 확인하지 못했고, 지원하지 않는 값 때문에 모든 호출이 실패하는 일을 막는다 |
 | 2026-11-12 | 고도화 버전 LLM은 AWS(Bedrock 관리형 또는 자체 호스팅 vLLM), 로컬은 Ollama | 소형 로컬 모델보다 품질이 높고 모델 출처를 고를 수 있다. 외부 API 금지 정책이면 vLLM 자체 호스팅 |
 | 2026-11-12 | `boto3` 다시 추가, `llm/bedrock.py`에서만 import. 생성은 Converse API, 임베딩은 Titan v2·Cohere | 모델 공통 형식이라 모델 ID만 바꿔 쓴다. DB 1024차원 그대로 |
 | 2026-11-12 | Bedrock 자격 증명은 boto3 기본 체인만, 프로필 설정은 `BEDROCK_PROFILE` | 키를 설정에 두지 않는다. 빈 `AWS_PROFILE`이 컨테이너에 들어가 boto3가 깨지는 것을 피한다 |

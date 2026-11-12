@@ -30,14 +30,14 @@ class LogLevel(StrEnum):
 
 
 class LLMProvider(StrEnum):
-    OPENAI_COMPAT = "openai_compat"  # Ollama(/v1)·vLLM(AWS 자체 호스팅)·OpenAI API
+    OPENAI_COMPAT = "openai_compat"  # OpenAI API·vLLM(AWS 자체 호스팅) 등 OpenAI 호환 서버
     BEDROCK = "bedrock"  # AWS Bedrock(고도화 버전 주 모델). LLM_MODEL·EMBEDDING_MODEL에 모델 ID
     FAKE = "fake"  # 테스트·키 없는 환경
 
 
 class FallbackProvider(StrEnum):
     NONE = "none"
-    BEDROCK = "bedrock"  # 1순위(Ollama·vLLM) 실패 시 Bedrock(BEDROCK_MODEL_ID)
+    BEDROCK = "bedrock"  # 1순위(OpenAI·vLLM) 실패 시 Bedrock(BEDROCK_MODEL_ID)
 
 
 class AuthProvider(StrEnum):
@@ -106,25 +106,29 @@ class Settings(BaseSettings):
 
     # --- LLM ---
     llm_provider: LLMProvider = LLMProvider.OPENAI_COMPAT
-    llm_base_url: str = "http://host.docker.internal:11434/v1"
+    # 기본: OpenAI API의 가장 가벼운 추론형 모델 + 생각 분량 none(응답 속도 우선). 품질은 프롬프트·RAG로 보강
+    llm_base_url: str = "https://api.openai.com/v1"
     llm_api_key: SecretStr | None = None
-    llm_model: str = "midm-2.0-mini"
+    llm_model: str = "gpt-5.4-nano"
     judge_model: str | None = None  # 비우면 llm_model과 같음
     llm_timeout_seconds: float = Field(default=60.0, gt=0)
     llm_max_tokens: int = Field(default=1200, gt=0)  # FAQ 상세 설명 기준
     llm_temperature: float = Field(default=0.2, ge=0, le=2)
-    # OpenAI API 최신 모델(gpt-5·o 계열) 호환: max_tokens 대신 max_completion_tokens, 온도 생략
-    openai_max_tokens_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
-    openai_omit_temperature: bool = False
-    # 추론형 모델(gpt-5 계열)의 생각 분량. 빠른 응답이 목표면 none(5.1+)·minimal(5). 비우면 보내지 않는다
-    openai_reasoning_effort: Literal["none", "minimal", "low", "medium", "high"] | None = None
+    # OpenAI API 최신 모델(gpt-5·o 계열) 호환: max_tokens 대신 max_completion_tokens, 온도 생략.
+    # vLLM 등 예전 형식 서버는 max_tokens / false / (빈 값)으로 바꾼다.
+    openai_max_tokens_param: Literal["max_tokens", "max_completion_tokens"] = (
+        "max_completion_tokens"
+    )
+    openai_omit_temperature: bool = True
+    # 추론형 모델의 생각 분량. none이 가장 빠르다(5.1+, gpt-5는 minimal). off면 보내지 않는다(vLLM 등)
+    openai_reasoning_effort: Literal["off", "none", "minimal", "low", "medium", "high"] = "none"
     # 임베딩: 비우면 llm_provider를 따른다
     embedding_provider: LLMProvider | None = None
     embedding_base_url: str | None = None  # 비우면 llm_base_url
-    embedding_model: str = "bge-m3"
+    embedding_model: str = "text-embedding-3-small"
     embedding_dim: int = Field(default=1024, gt=0)
     # true면 임베딩 요청에 dimensions=EMBEDDING_DIM을 보낸다(OpenAI text-embedding-3 축소용)
-    embedding_request_dimensions: bool = False
+    embedding_request_dimensions: bool = True
 
     # --- AWS Bedrock (LLM_PROVIDER=bedrock 또는 FALLBACK_PROVIDER=bedrock) ---
     # 자격 증명은 boto3 기본 체인(IAM 역할·환경변수·~/.aws)을 쓴다. 키를 설정에 두지 않는다.

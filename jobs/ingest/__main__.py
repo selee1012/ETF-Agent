@@ -30,7 +30,7 @@ async def main() -> int:
                 print(f"  [{r.status:9}] {r.title}  chunks={n}  ({r.source_uri})")
     except LLMError as e:
         print(
-            f"임베딩 실패: {e}\n→ Ollama 실행과 'ollama pull {settings.embedding_model}'을 확인하세요."
+            f"임베딩 실패: {e}\n→ LLM_API_KEY·EMBEDDING_MODEL({settings.embedding_model})·네트워크를 확인하세요."
         )
         return 1
     finally:

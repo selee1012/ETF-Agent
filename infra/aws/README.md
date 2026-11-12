@@ -1,6 +1,6 @@
 # 고도화 버전: AWS에서 모델 쓰기
 
-로컬은 Ollama(또는 fake)로 개발하고, 고도화·배포 버전은 AWS에서 모델을 쓴다.
+로컬은 OpenAI API(또는 fake)로 개발하고, 고도화·배포 버전은 AWS에서 모델을 쓴다.
 코드 변경 없이 **환경변수만** 바꿔 아래 세 방식 중 하나를 고른다(공통 규칙 3).
 
 | 방식 | 생성 모델 | 임베딩 | 질의가 나가는 곳 | 운영 부담 |
@@ -32,7 +32,7 @@ EMBEDDING_DIM=1024
   리전별 지원 모델은 콘솔 Bedrock → Model catalog에서 확인한다.
 - 임베딩은 `amazon.titan-embed-text-v2:0`(256/512/1024차원)과 `cohere.embed-multilingual-v3`(1024차원)를 지원한다.
   DB 컬럼이 1024차원이므로 `EMBEDDING_DIM=1024`를 유지하면 마이그레이션이 필요 없다.
-  로컬(Ollama)에서 쓰던 임베딩과 모델이 다르면 `make ingest`가 바뀐 모델을 감지해 다시 임베딩한다.
+  로컬(OpenAI)에서 쓰던 임베딩과 모델이 다르면 `make ingest`가 바뀐 모델을 감지해 다시 임베딩한다.
 - 자격 증명은 boto3 기본 체인을 쓴다: ECS 태스크 역할/EC2 인스턴스 프로필 → `AWS_*` 환경변수 → `~/.aws`.
   **액세스 키를 .env에 넣지 않는다.** 로컬에서 시험할 때만 `BEDROCK_PROFILE=<~/.aws 프로필>`을 쓴다.
 - IAM 최소 권한(실행 역할):
@@ -57,8 +57,8 @@ EMBEDDING_DIM=1024
 
 설정 예시: [`vllm.env.example`](vllm.env.example)
 
-vLLM은 OpenAI 호환 API를 제공하므로 로컬 Ollama와 **같은 어댑터(openai_compat)** 를 쓴다.
-Hugging Face 모델을 그대로 올릴 수 있어 Mi:dm처럼 Ollama 공식 등록이 없는 모델도 쓸 수 있다.
+vLLM은 OpenAI 호환 API를 제공하므로 로컬 OpenAI API와 **같은 어댑터(openai_compat)** 를 쓴다(`OPENAI_MAX_TOKENS_PARAM=max_tokens`, `OPENAI_OMIT_TEMPERATURE=false`, `OPENAI_REASONING_EFFORT=off`).
+Hugging Face 모델을 그대로 올릴 수 있어 Mi:dm 같은 국산 sLLM도 쓸 수 있다.
 
 ```bash
 # GPU 인스턴스(예: g6.xlarge, L4 24GB)에서

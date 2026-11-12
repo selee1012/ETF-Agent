@@ -43,16 +43,12 @@ setup: ## 호스트 의존성 설치(uv, npm) — make test/lint용
 
 # ---------- 로컬 스택 ----------
 .PHONY: up
-up: check-env ## db·api·web 기동(빌드 포함), 헬스체크 통과까지 대기. Ollama 없이: make up PROVIDER=fake
+up: check-env ## db·api·web 기동(빌드 포함), 헬스체크 통과까지 대기. API 키 없이: make up PROVIDER=fake
 	$(PROVIDER_ENV) $(COMPOSE) up -d --build --wait db api web
-
-.PHONY: up-ollama
-up-ollama: check-env ## 맥이 아닌 OS: 컨테이너 Ollama까지 기동(LLM_BASE_URL=http://ollama:11434/v1)
-	$(PROVIDER_ENV) $(COMPOSE) --profile ollama up -d --build --wait
 
 .PHONY: down
 down: check-env ## 모든 컨테이너 중지(볼륨 유지)
-	$(COMPOSE) --profile ollama down
+	$(COMPOSE) down
 
 .PHONY: ps
 ps: check-env ## 컨테이너 상태
@@ -79,11 +75,6 @@ ingest: check-env ## 샘플 문서 청킹·임베딩 적재(P1-DA-03). 다른 �
 collect: check-env ## 공공데이터포털·DART 수집(키가 없으면 안내만 출력)
 	$(API_EXEC) python -m jobs.collector $(ARGS)
 
-.PHONY: pull-models
-pull-models: ## 호스트 Ollama에 .env(.local)의 생성·임베딩 모델 받기
-	ollama pull $(or $(EMBEDDING_MODEL),bge-m3)
-	$(if $(LLM_MODEL),ollama pull $(LLM_MODEL),@echo "LLM_MODEL이 비어 있어 생성 모델은 받지 않습니다(README 참고)")
-
 # ---------- 품질 ----------
 .PHONY: test
 test: ## API 테스트(LLM_PROVIDER=fake, db 컨테이너 필요: make up)
@@ -104,7 +95,7 @@ eval: check-env ## 평가 리포트(JSON + 표). 예: make eval PROVIDER=fake
 	$(API_EXEC) python -m ml.eval $(ARGS)
 
 .PHONY: demo
-demo: check-env ## 대표 질문 6개 실행(호스트 Ollama 필요). 예: make demo PROVIDER=fake
+demo: check-env ## 대표 질문 6개 실행(LLM_API_KEY 필요). 예: make demo PROVIDER=fake
 	$(API_EXEC) python /workspace/scripts/demo.py $(ARGS)
 
 # ---------- 웹 ----------

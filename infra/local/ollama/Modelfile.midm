@@ -1,8 +1,0 @@
-# Mi:dm 2.0 Mini GGUF를 Ollama 모델로 등록하는 예시.
-# 1) Hugging Face에서 Mi:dm 2.0 Mini Instruct의 GGUF(Q4_K_M 권장)를 받아 이 디렉터리에 둔다.
-#    (예: midm-2.0-mini-instruct-q4_k_m.gguf — 파일명은 받은 이름에 맞춰 아래 FROM을 고친다)
-# 2) ollama create midm-2.0-mini -f infra/local/ollama/Modelfile.midm
-# *.gguf는 .gitignore 대상이다.
-FROM ./midm-2.0-mini-instruct-q4_k_m.gguf
-PARAMETER temperature 0.2
-PARAMETER num_ctx 8192

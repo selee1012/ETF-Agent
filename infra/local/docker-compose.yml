@@ -1,7 +1,6 @@
 # 로컬 개발 스택: db(Postgres + pgvector + pg_trgm), api(FastAPI 리로드), web(Vite dev server).
 # 사용: 루트에서 make up / make down. 직접 실행 시 --env-file .env 필요.
-# LLM은 맥 GPU 가속을 위해 호스트 Ollama를 기본으로 쓴다(LLM_BASE_URL=http://host.docker.internal:11434/v1).
-# 그 밖의 OS는 --profile ollama로 컨테이너 Ollama를 띄우고 LLM_BASE_URL=http://ollama:11434/v1 로 바꾼다.
+# LLM은 기본으로 OpenAI API를 쓴다(.env.local, LLM_API_KEY 필요). 키 없이 돌리려면 make up PROVIDER=fake.
 name: etf-agent
 
 services:
@@ -61,7 +60,7 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     extra_hosts:
-      # 호스트에서 도는 Ollama 접근용(리눅스 포함)
+      # 호스트에서 도는 OpenAI 호환 서버(직접 띄운 vLLM 등) 접근용(리눅스 포함)
       - "host.docker.internal:host-gateway"
     depends_on:
       db:
@@ -102,24 +101,7 @@ services:
       retries: 6
     restart: unless-stopped
 
-  # 선택: 컨테이너 Ollama (맥이 아닌 OS용). 큰 모델은 자동으로 받지 않는다 → make pull-models
-  ollama:
-    profiles: ["ollama"]
-    image: ollama/ollama:0.40.16
-    ports:
-      - "127.0.0.1:11434:11434"
-    volumes:
-      - ollama:/root/.ollama
-      - ./ollama:/modelfiles:ro
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
 volumes:
   pgdata:
   storage:
   web_node_modules:
-  ollama:

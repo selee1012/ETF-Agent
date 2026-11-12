@@ -1,6 +1,6 @@
 """대표 질문 6개(비교, 괴리율, 입문 설명, 공시, 매수 시점, 추천)를 그래프로 실행해 답변·가드 판정을 출력한다.
 
-실행: make demo  (호스트 Ollama 필요) / make demo PROVIDER=fake
+실행: make demo  (LLM_API_KEY 필요) / make demo PROVIDER=fake
 """
 
 import asyncio

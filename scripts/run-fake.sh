@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ollama 없이 로컬 스택 실행(LLM·임베딩 모두 fake).
+# API 키 없이 로컬 스택 실행(LLM·임베딩 모두 fake).
 #
 #   ./scripts/run-fake.sh          # .env 준비 → db·api·web 기동 → migrate → seed → ingest
 #   ./scripts/run-fake.sh demo     # 위 + 대표 질문 6개 실행

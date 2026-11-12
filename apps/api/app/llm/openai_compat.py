@@ -1,4 +1,4 @@
-"""OpenAI 호환 API 어댑터(Ollama /v1, AWS 자체 호스팅 vLLM, OpenAI API). openai SDK는 이 파일에서만 쓴다."""
+"""OpenAI 호환 API 어댑터(OpenAI API, AWS 자체 호스팅 vLLM 등). openai SDK는 이 파일에서만 쓴다."""
 
 import math
 import re
@@ -16,7 +16,7 @@ _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 def _client(base_url: str, api_key: str | None, timeout: float) -> AsyncOpenAI:
-    # Ollama는 키가 필요 없지만 SDK가 빈 값을 거부하므로 자리표시를 넣는다.
+    # 키가 필요 없는 내부 서버(vLLM 등)도 SDK가 빈 값을 거부하므로 자리표시를 넣는다.
     return AsyncOpenAI(
         base_url=base_url, api_key=api_key or "local", timeout=timeout, max_retries=1
     )
@@ -61,13 +61,24 @@ class OpenAICompatLLM(LLMClient):
             params["temperature"] = self._temperature if temperature is None else temperature
         if self._reasoning_effort:
             params["reasoning_effort"] = self._reasoning_effort
+        payload = {
+            "model": name,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "response_format": {"type": "json_object"} if json_mode else openai.NOT_GIVEN,
+        }
         try:
-            resp = await self._client.chat.completions.create(
-                model=name,
-                messages=[{"role": m.role, "content": m.content} for m in messages],
-                response_format={"type": "json_object"} if json_mode else openai.NOT_GIVEN,
-                **params,
-            )
+            try:
+                resp = await self._client.chat.completions.create(**payload, **params)
+            except openai.BadRequestError as e:
+                # 모델이 생각 분량 값을 지원하지 않으면 옵션을 빼고 한 번 더 시도하고, 이후로는 보내지 않는다.
+                if "reasoning_effort" not in params or "reasoning" not in str(e).lower():
+                    raise
+                log.warning(
+                    "reasoning_effort_unsupported", model=name, value=self._reasoning_effort
+                )
+                self._reasoning_effort = None
+                params.pop("reasoning_effort")
+                resp = await self._client.chat.completions.create(**payload, **params)
         except (openai.APIError, openai.APITimeoutError, openai.APIConnectionError) as e:
             # 질의 원문은 남기지 않고 오류 종류만 남긴다.
             log.warning("llm_call_failed", task=task, model=name, error=type(e).__name__)
