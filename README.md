@@ -4,8 +4,8 @@ ETF 질의응답 AI Agent의 MVP(Phase 1) 모노레포. **로컬 Docker에서 �
 나중에 Supabase·Cloudflare·AWS로 옮길 때는 **설정(`.env`)과 어댑터만** 바꾸면 되도록 구성했다.
 
 ```
-질문 → 발화 전처리 → 오케스트레이터(의도 분류·라우팅) → 전문 에이전트(ETF 정보 | 지식·FAQ | 공시 요약)
-     → 답변 합성 → 컴플라이언스 가드(룰 → 검증 모델 → 고위험 템플릿) → SSE 스트리밍 응답
+질문 → 발화 전처리 → 오케스트레이터(의도 분류 ∥ 문서 검색을 동시에) → 자료 수집(ETF 정보 | 지식·FAQ | 공시, 동시에, LLM 없음)
+     → 답변 합성(모은 자료로 LLM 1회) → 컴플라이언스 가드(룰 → 검증 모델 → 고위험 템플릿) → SSE 스트리밍 응답
 ```
 
 > 상품·시세·공시·문서는 모두 개발용 **샘플** 데이터다(`data/samples`, 이름·설명에 '샘플' 표기).
@@ -200,10 +200,10 @@ LLM_API_KEY=<OpenAI API 키>
 | P1-DA-03 | 문서 ingest(문단 청킹·겹침, 재적재 갱신) | `apps/api/app/rag/ingest.py`, `apps/api/app/rag/chunker.py`, `jobs/ingest/` |
 | P1-AG-01 | 발화 전처리·ETF명 인식(rapidfuzz) | `apps/api/app/agents/preprocess/` |
 | P1-AG-02 | 오케스트레이터(LLM JSON → 키워드 규칙, 병렬 라우팅), 일반 대화(로컬 전용) | `apps/api/app/agents/orchestrator/`, `apps/api/app/agents/graph.py`, `apps/api/app/agents/general/` |
-| P1-AG-03 | ETF 정보 에이전트·도구 | `apps/api/app/agents/etf_info/`, `apps/api/app/tools/{etf_search,price_lookup,compare}.py` |
-| P1-AG-04 | 지식·FAQ 에이전트(하이브리드 검색, 수준별) | `apps/api/app/agents/faq/`, `apps/api/app/rag/retriever.py`, `prompts/system/faq_*.md` |
-| P1-AG-05 | 공시 요약 에이전트 | `apps/api/app/agents/disclosure/`, `apps/api/app/tools/disclosure_lookup.py` |
-| P1-AG-06 | 답변 합성·컴플라이언스 가드·폴백 자리 | `apps/api/app/agents/compose/`, `apps/api/app/agents/guard/`, `prompts/guard/`, `prompts/templates/`, `apps/api/app/llm/{router,bedrock}.py`, `apps/api/app/privacy/` |
+| P1-AG-03 | ETF 정보 수집·도구 | `apps/api/app/agents/etf_info/`, `apps/api/app/tools/{etf_search,price_lookup,compare}.py` |
+| P1-AG-04 | 지식·FAQ 수집(하이브리드 검색, 후속 질문 검색 보강, 수준별 캐시) | `apps/api/app/agents/faq/`, `apps/api/app/rag/retriever.py`, `data/samples/docs/` |
+| P1-AG-05 | 공시 수집 | `apps/api/app/agents/disclosure/`, `apps/api/app/tools/disclosure_lookup.py` |
+| P1-AG-06 | 답변 합성(LLM 1회, 수준별 프롬프트)·컴플라이언스 가드·폴백 자리 | `apps/api/app/agents/compose/`, `prompts/system/answer_*.md`, `apps/api/app/agents/guard/`, `prompts/guard/`, `prompts/templates/`, `apps/api/app/llm/{router,bedrock}.py`, `apps/api/app/privacy/` |
 | P1-API-01 | dev-login, `/chat` SSE | `apps/api/app/routers/{auth,chat}.py`, `apps/api/app/services/chat.py`, `apps/api/app/auth/` |
 | P1-API-02 | 이력 | `apps/api/app/routers/history.py` |
 | P1-API-03 | 피드백 | `apps/api/app/routers/feedback.py` |
@@ -313,6 +313,11 @@ my-rag-project/ 2주차 실습 RAG 프로토타입(.env, requirements.txt, rag_m
 | 2026-11-12 | 답변 본문의 근거 번호 `[n]`·'설명 수준' 표시는 화면에서 지우고, 출처 목록만 보인다 | 번호는 출처를 고르는 데만 쓰고, 읽을 때는 방해가 된다 |
 | 2026-11-12 | 답변의 의도·가드 판정은 화면에 보이지 않고 운영 화면 트레이스에서만 본다 | 사용자에게는 의미 없는 내부 정보 |
 | 2026-11-12 | 대화 삭제 시 메시지는 지우고 피드백(`message_id`→NULL)·트레이스는 남긴다 | 사용자 데이터는 지우되, 원문 없는 운영 지표는 품질 관리에 필요 |
+| 2026-11-12 | 답변 합성 변경: 수집 에이전트는 LLM 없이 자료만 동시에 모으고, compose가 LLM 1회로 하나의 답을 쓴다(DB 표·공시 목록은 그대로 아래에 붙임). 위 '섹션 결합' 결정을 대체 | 에이전트별 요약 호출을 없애 호출 수·지연을 줄이고, 여러 자료를 엮은 하나의 설명을 낸다. 수치는 표가 원본이고 가드가 문장 속 수치를 근거와 대조한다 |
+| 2026-11-12 | 의도 분류와 FAQ 문서 검색을 동시에 시작, 검색기 안에서도 임베딩과 키워드 조회를 겹친다 | FAQ가 가장 흔한 의도라 미리 검색하면 분류 대기 시간만큼 빨라진다. 다른 의도면 임베딩 1회만 버린다 |
+| 2026-11-12 | 가드 반려 시 합성만 다시(자료 재수집 없음) | 재생성 지연을 줄인다 |
+| 2026-11-12 | 작은 모델용 프롬프트: 수준별 파일(설명 방식·형식 예시) + 공통 규칙(입력 자료·작성 순서·금지) | 큰 모델 없이 형식·근거 준수를 끌어올린다 |
+| 2026-11-12 | 자주 묻는 주제 문서 7종을 미리 적재(ETN 비교·환헤지·합성·커버드콜·연금계좌·상장폐지·용어) | 질문 시점 크롤링은 느려지고 검증되지 않은 내용이 섞인다. 미리 넣어 두면 검색 1회로 답한다 |
 | 2026-11-12 | 로컬 기본 모델을 Ollama(gemma3:12b)에서 OpenAI `gpt-5.4-nano` + 생각 분량 `none`으로, Ollama 실행 도구(compose 프로필·pull-models·Modelfile)는 제거 | 이 Mac에서 12b는 초당 약 16토큰이라 상세 답변에 40초 이상 걸린다. 10초 이내 목표, 품질은 프롬프트·RAG로 보강. Ollama가 다시 필요하면 같은 openai_compat 어댑터로 주소만 바꾸면 된다 |
 | 2026-11-12 | 생각 분량 기본 `none`, 모델이 거부하면 옵션을 빼고 1회 재호출 후 이후 생략 | 크레딧 없이 모델별 지원 여부를 미리 확인하지 못했고, 지원하지 않는 값 때문에 모든 호출이 실패하는 일을 막는다 |
 | 2026-11-12 | 고도화 버전 LLM은 AWS(Bedrock 관리형 또는 자체 호스팅 vLLM), 로컬은 Ollama | 소형 로컬 모델보다 품질이 높고 모델 출처를 고를 수 있다. 외부 API 금지 정책이면 vLLM 자체 호스팅 |
