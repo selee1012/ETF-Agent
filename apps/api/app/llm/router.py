@@ -1,27 +1,28 @@
 """1순위 LLM → 폴백 라우터. # P1-AG-06
 
-지금은 FALLBACK_PROVIDER=none만 동작한다: 1순위가 실패하면 LLMUnavailableError를 올리고
-그래프가 안전 답변을 내보낸다. Bedrock 폴백은 Phase 1 배포에서 BedrockLLM을 구현해 붙인다.
+- FALLBACK_PROVIDER=none: 1순위가 실패하면 LLMUnavailableError → 그래프가 안전 답변을 낸다.
+- FALLBACK_PROVIDER=bedrock: FALLBACK_ALLOWED_INTENTS에 든 의도만 Bedrock(BEDROCK_MODEL_ID)으로
+  다시 호출한다(예: 자체 호스팅 sLLM 장애 시 FAQ만 Bedrock으로).
 """
 
 from app.llm.base import ChatMessage, LLMClient, LLMError, LLMResponse, LLMUnavailableError
 from app.settings import FallbackProvider, Settings
 
 
-class BedrockLLM(LLMClient):
-    """자리만 있는 스텁. 구현 시 boto3 bedrock-runtime Converse API를 여기서만 쓴다."""
-
-    def __init__(self, *, region: str, model_id: str | None) -> None:
-        self.model = model_id or "bedrock"
-        self.region = region
-
-    async def complete(self, messages: list[ChatMessage], **_: object) -> LLMResponse:
-        raise NotImplementedError("Bedrock 폴백은 Phase 1 배포 단계에서 구현한다")
-
-
 def build_fallback(settings: Settings) -> LLMClient | None:
     if settings.fallback_provider is FallbackProvider.BEDROCK:
-        return BedrockLLM(region=settings.bedrock_region, model_id=settings.bedrock_model_id)
+        if not settings.bedrock_model_id:
+            raise ValueError("FALLBACK_PROVIDER=bedrock이면 BEDROCK_MODEL_ID가 필요합니다")
+        from app.llm.bedrock import BedrockLLM
+
+        return BedrockLLM(
+            region=settings.bedrock_region,
+            profile=settings.bedrock_profile,
+            model_id=settings.bedrock_model_id,
+            timeout=settings.llm_timeout_seconds,
+            default_max_tokens=settings.llm_max_tokens,
+            default_temperature=settings.llm_temperature,
+        )
     return None
 
 
@@ -58,7 +59,10 @@ class LLMRouter(LLMClient):
         except LLMError as e:
             if self.fallback is None or (intent and intent not in self.allowed_intents):
                 raise LLMUnavailableError(str(e)) from e
-            # P1 배포 단계: 폴백 호출. 지금은 BedrockLLM이 NotImplementedError를 올린다.
-            resp = await self.fallback.complete(messages, **{**kwargs, "model": None})
+            # 폴백은 자기 모델을 쓴다(1순위용 모델 이름·judge 모델 이름을 넘기지 않는다).
+            try:
+                resp = await self.fallback.complete(messages, **{**kwargs, "model": None})
+            except LLMError as fe:
+                raise LLMUnavailableError(str(fe)) from fe
             resp.fallback_used = True
             return resp

@@ -1,6 +1,9 @@
 """LLM·임베딩 어댑터. 에이전트는 base.py의 인터페이스만 쓴다(공통 규칙 1).
 
 공급자 선택은 settings.LLM_PROVIDER / EMBEDDING_PROVIDER(Enum)로만 한다(공통 규칙 3).
+- openai_compat: 로컬 Ollama, AWS 자체 호스팅 vLLM, OpenAI API(개인용 .env.local)
+- bedrock: AWS Bedrock(고도화 버전 주 모델)
+- fake: 테스트·키 없는 환경
 """
 
 from app.llm.base import Embedder, LLMClient
@@ -16,6 +19,17 @@ def build_llm(settings: Settings, *, model: str | None = None) -> LLMClient:
         from app.llm.fake import FakeLLM
 
         primary = FakeLLM(model=f"fake({model or settings.llm_model})")
+    elif settings.llm_provider is LLMProvider.BEDROCK:
+        from app.llm.bedrock import BedrockLLM
+
+        primary = BedrockLLM(
+            region=settings.bedrock_region,
+            profile=settings.bedrock_profile,
+            model_id=model or settings.llm_model,
+            timeout=settings.llm_timeout_seconds,
+            default_max_tokens=settings.llm_max_tokens,
+            default_temperature=settings.llm_temperature,
+        )
     else:
         from app.llm.openai_compat import OpenAICompatLLM
 
@@ -35,6 +49,16 @@ def build_embedder(settings: Settings) -> Embedder:
         from app.llm.fake import FakeEmbedder
 
         return FakeEmbedder(dim=settings.embedding_dim)
+    if settings.embedding_provider is LLMProvider.BEDROCK:
+        from app.llm.bedrock import BedrockEmbedder
+
+        return BedrockEmbedder(
+            region=settings.bedrock_region,
+            profile=settings.bedrock_profile,
+            model_id=settings.embedding_model,
+            dim=settings.embedding_dim,
+            timeout=settings.llm_timeout_seconds,
+        )
     from app.llm.openai_compat import OpenAICompatEmbedder
 
     return OpenAICompatEmbedder(

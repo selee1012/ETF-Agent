@@ -30,13 +30,14 @@ class LogLevel(StrEnum):
 
 
 class LLMProvider(StrEnum):
-    OPENAI_COMPAT = "openai_compat"  # Ollama(/v1), 나중에 vLLM도 같은 클라이언트
+    OPENAI_COMPAT = "openai_compat"  # Ollama(/v1)·vLLM(AWS 자체 호스팅)·OpenAI API
+    BEDROCK = "bedrock"  # AWS Bedrock(고도화 버전 주 모델). LLM_MODEL·EMBEDDING_MODEL에 모델 ID
     FAKE = "fake"  # 테스트·키 없는 환경
 
 
 class FallbackProvider(StrEnum):
     NONE = "none"
-    BEDROCK = "bedrock"  # Phase 1 배포에서 구현(llm/router.py 자리만 있음)
+    BEDROCK = "bedrock"  # 1순위(Ollama·vLLM) 실패 시 Bedrock(BEDROCK_MODEL_ID)
 
 
 class AuthProvider(StrEnum):
@@ -117,10 +118,13 @@ class Settings(BaseSettings):
     embedding_model: str = "bge-m3"
     embedding_dim: int = Field(default=1024, gt=0)
 
-    # --- LLM 폴백 (Phase 1 배포에서 구현) ---
-    fallback_provider: FallbackProvider = FallbackProvider.NONE
+    # --- AWS Bedrock (LLM_PROVIDER=bedrock 또는 FALLBACK_PROVIDER=bedrock) ---
+    # 자격 증명은 boto3 기본 체인(IAM 역할·환경변수·~/.aws)을 쓴다. 키를 설정에 두지 않는다.
     bedrock_region: str = "ap-northeast-2"
-    bedrock_model_id: str | None = None
+    bedrock_profile: str | None = None  # 로컬에서 ~/.aws 프로필을 쓸 때만
+    # --- LLM 폴백 ---
+    fallback_provider: FallbackProvider = FallbackProvider.NONE
+    bedrock_model_id: str | None = None  # 폴백용 Bedrock 모델 ID
     fallback_allowed_intents: CommaList = Field(default_factory=lambda: ["faq"])
 
     # --- 어댑터 선택 ---

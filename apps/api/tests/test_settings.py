@@ -57,6 +57,7 @@ def test_rejects_sync_driver_url(clean_env: pytest.MonkeyPatch) -> None:
     ("env", "value", "field", "expected"),
     [
         ("LLM_PROVIDER", "fake", "llm_provider", LLMProvider.FAKE),
+        ("LLM_PROVIDER", "bedrock", "llm_provider", LLMProvider.BEDROCK),
         ("FALLBACK_PROVIDER", "bedrock", "fallback_provider", FallbackProvider.BEDROCK),
         ("ADMIN_AUTH", "cf_access", "admin_auth", AdminAuth.CF_ACCESS),
         ("AUTH_PROVIDER", "cognito", "auth_provider", AuthProvider.COGNITO),
