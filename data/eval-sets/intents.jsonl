@@ -1,0 +1,10 @@
+{"question": "샘플 코스닥150 시세 알려줘", "intents": ["etf_info"]}
+{"question": "보수 낮은 국내 채권 ETF 목록 보여줘", "intents": ["etf_info"]}
+{"question": "추적오차와 괴리율 차이가 뭐야?", "intents": ["faq"]}
+{"question": "ETF 세금은 어떻게 매겨져?", "intents": ["faq"]}
+{"question": "샘플 2차전지테마 관련 뉴스 있어?", "intents": ["disclosure"]}
+{"question": "샘플 반도체랑 샘플 2차전지 비교하고 뉴스도 알려줘", "intents": ["etf_info", "disclosure"]}
+{"question": "샘플 나스닥100 내년에 오를까?", "intents": ["high_risk"]}
+{"question": "제 ETF 양도세 얼마 나와요?", "intents": ["high_risk"]}
+{"question": "은퇴 대비 ETF 골라줘", "intents": ["recommendation"]}
+{"question": "오늘 저녁 메뉴 뭐가 좋을까", "intents": ["out_of_scope"]}
