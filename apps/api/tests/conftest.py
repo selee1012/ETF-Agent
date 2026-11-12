@@ -51,6 +51,11 @@ os.environ.update(
     }
 )
 
+# .env·.env.local(개인 설정)의 값이 테스트에 섞이지 않도록 dotenv 파일을 읽지 않는다.
+from app.settings import Settings as _Settings  # noqa: E402
+
+_Settings.model_config["env_file"] = ()
+
 from fastapi import FastAPI  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 

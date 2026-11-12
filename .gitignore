@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.local.example
 *.pem
 *.key
 infra/mvp/cloudflared/config.yml

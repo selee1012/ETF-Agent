@@ -1,4 +1,4 @@
-"""OpenAI 호환 API(Ollama /v1, 나중에 vLLM) 어댑터. openai SDK는 이 파일에서만 쓴다."""
+"""OpenAI 호환 API 어댑터(Ollama /v1, AWS 자체 호스팅 vLLM, OpenAI API). openai SDK는 이 파일에서만 쓴다."""
 
 import math
 import re
@@ -32,11 +32,15 @@ class OpenAICompatLLM(LLMClient):
         timeout: float,
         default_max_tokens: int,
         default_temperature: float,
+        max_tokens_param: str = "max_tokens",
+        omit_temperature: bool = False,
     ) -> None:
         self.model = model
         self._client = _client(base_url, api_key, timeout)
         self._max_tokens = default_max_tokens
         self._temperature = default_temperature
+        self._max_tokens_param = max_tokens_param
+        self._omit_temperature = omit_temperature
 
     async def complete(
         self,
@@ -50,13 +54,15 @@ class OpenAICompatLLM(LLMClient):
         json_mode: bool = False,
     ) -> LLMResponse:
         name = model or self.model
+        params: dict = {self._max_tokens_param: max_tokens or self._max_tokens}
+        if not self._omit_temperature:
+            params["temperature"] = self._temperature if temperature is None else temperature
         try:
             resp = await self._client.chat.completions.create(
                 model=name,
                 messages=[{"role": m.role, "content": m.content} for m in messages],
-                temperature=self._temperature if temperature is None else temperature,
-                max_tokens=max_tokens or self._max_tokens,
                 response_format={"type": "json_object"} if json_mode else openai.NOT_GIVEN,
+                **params,
             )
         except (openai.APIError, openai.APITimeoutError, openai.APIConnectionError) as e:
             # 질의 원문은 남기지 않고 오류 종류만 남긴다.
@@ -75,17 +81,29 @@ class OpenAICompatLLM(LLMClient):
 
 class OpenAICompatEmbedder(Embedder):
     def __init__(
-        self, *, base_url: str, api_key: str | None, model: str, dim: int, timeout: float
+        self,
+        *,
+        base_url: str,
+        api_key: str | None,
+        model: str,
+        dim: int,
+        timeout: float,
+        request_dimensions: bool = False,
     ) -> None:
         self.model = model
         self.dim = dim
         self._client = _client(base_url, api_key, timeout)
+        self._request_dimensions = request_dimensions
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
         try:
-            resp = await self._client.embeddings.create(model=self.model, input=texts)
+            resp = await self._client.embeddings.create(
+                model=self.model,
+                input=texts,
+                dimensions=self.dim if self._request_dimensions else openai.NOT_GIVEN,
+            )
         except (openai.APIError, openai.APITimeoutError, openai.APIConnectionError) as e:
             log.warning("embedding_call_failed", model=self.model, error=type(e).__name__)
             raise LLMError(f"임베딩 호출 실패: {type(e).__name__}") from e

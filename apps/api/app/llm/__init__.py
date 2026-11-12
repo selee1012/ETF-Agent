@@ -40,6 +40,8 @@ def build_llm(settings: Settings, *, model: str | None = None) -> LLMClient:
             timeout=settings.llm_timeout_seconds,
             default_max_tokens=settings.llm_max_tokens,
             default_temperature=settings.llm_temperature,
+            max_tokens_param=settings.openai_max_tokens_param,
+            omit_temperature=settings.openai_omit_temperature,
         )
     return LLMRouter(primary, build_fallback(settings), settings.fallback_allowed_intents)
 
@@ -67,6 +69,7 @@ def build_embedder(settings: Settings) -> Embedder:
         model=settings.embedding_model,
         dim=settings.embedding_dim,
         timeout=settings.llm_timeout_seconds,
+        request_dimensions=settings.embedding_request_dimensions,
     )
 
 

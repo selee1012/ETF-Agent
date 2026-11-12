@@ -35,6 +35,9 @@ services:
     env_file:
       - path: ../../.env
         required: true
+      # 개인용 로컬 설정(gitignore). 있으면 .env 값을 덮는다(.env.local.example 참고)
+      - path: ../../.env.local
+        required: false
     environment:
       # 셸에서 덮어쓸 수 있게 한다(예: LLM_PROVIDER=fake make up). 비우면 settings 기본값.
       LLM_PROVIDER: ${LLM_PROVIDER:-}

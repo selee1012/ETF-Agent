@@ -7,7 +7,7 @@ import secrets
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -68,8 +68,9 @@ CommaList = Annotated[list[str], NoDecode]
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        # 루트 .env → apps/api/.env 순으로 읽고, 실제 환경변수가 항상 우선한다.
-        env_file=("../../.env", ".env"),
+        # 루트 .env → 루트 .env.local(개인 로컬 설정, gitignore) → apps/api/.env 순으로 읽는다.
+        # 뒤 파일이 앞 파일을 덮고, 실제 환경변수가 항상 우선한다.
+        env_file=("../../.env", "../../.env.local", ".env"),
         env_file_encoding="utf-8",
         env_ignore_empty=True,
         extra="ignore",
@@ -112,11 +113,16 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=60.0, gt=0)
     llm_max_tokens: int = Field(default=800, gt=0)
     llm_temperature: float = Field(default=0.2, ge=0, le=2)
+    # OpenAI API 최신 모델(gpt-5·o 계열) 호환: max_tokens 대신 max_completion_tokens, 온도 생략
+    openai_max_tokens_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+    openai_omit_temperature: bool = False
     # 임베딩: 비우면 llm_provider를 따른다
     embedding_provider: LLMProvider | None = None
     embedding_base_url: str | None = None  # 비우면 llm_base_url
     embedding_model: str = "bge-m3"
     embedding_dim: int = Field(default=1024, gt=0)
+    # true면 임베딩 요청에 dimensions=EMBEDDING_DIM을 보낸다(OpenAI text-embedding-3 축소용)
+    embedding_request_dimensions: bool = False
 
     # --- AWS Bedrock (LLM_PROVIDER=bedrock 또는 FALLBACK_PROVIDER=bedrock) ---
     # 자격 증명은 boto3 기본 체인(IAM 역할·환경변수·~/.aws)을 쓴다. 키를 설정에 두지 않는다.
