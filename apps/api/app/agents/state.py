@@ -71,8 +71,10 @@ class Source:
 
 @dataclass(slots=True)
 class AgentResult:
+    """수집 에이전트 결과. LLM은 부르지 않고, 답변 합성(compose)이 모아서 한 번에 쓴다. # P1-AG-02"""
+
     agent: str
-    content: str
+    content: str  # 화면에 그대로 붙는 결정적 블록(DB 표·공시 목록·안내 문구). FAQ는 비움(캐시 적중 시 답변)
     sources: list[Source] = field(default_factory=list)
     evidence: list[str] = field(default_factory=list)  # 가드 근거 대조용 텍스트
     retrieved_ids: list[str] = field(default_factory=list)
@@ -84,6 +86,8 @@ class AgentResult:
     error: str | None = None
     cache_key: str | None = None  # 가드 통과 시 캐시에 저장할 키(FAQ)
     cached: bool = False
+    found: bool = True  # 답에 쓸 자료를 찾았는지(False면 content는 안내 문구)
+    context: str = ""  # LLM 프롬프트에 넣을 자료 블록([ETF 데이터]·[공시]·[근거 N])
 
 
 @dataclass(slots=True)
@@ -127,10 +131,15 @@ class GraphState(TypedDict, total=False):
     agents_called: Annotated[list[str], operator.add]
     attempt: int
     retry_feedback: list[str]
+    prefetched_chunks: list[Any] | None  # 의도 분류와 동시에 미리 검색한 문서 청크(RetrievedChunk)
     body: str
     disclaimer_ids: list[str]
     sources: list[Source]
     evidence: list[str]
+    generated: bool  # 답변에 LLM 생성 문장이 있는지(검증 모델 대상)
+    grounded: bool  # False: 근거 없이 모델 일반 지식으로 답함
+    cached: bool  # FAQ 캐시 적중
+    cache_key: str | None  # 가드 통과 시 FAQ 캐시에 저장할 키
     guard: GuardResult
     guard_history: Annotated[list[list[str]], operator.add]
     verdict: str

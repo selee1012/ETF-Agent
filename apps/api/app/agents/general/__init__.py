@@ -1,4 +1,4 @@
-"""일반 대화 에이전트(개인용 로컬 전용, GENERAL_CHAT_ENABLED).
+"""일반 대화 답변(개인용 로컬 전용, GENERAL_CHAT_ENABLED). 답변 합성(compose)이 부른다.
 
 - ETF 범위 밖 질문(out_of_scope)에 LLM이 이전 대화 맥락을 이어 자유롭게 답한다.
 - FAQ에서 근거 문서를 못 찾았을 때도 이 함수로 일반 지식 답변을 만든다(근거 없음 표시).
@@ -8,7 +8,7 @@
 
 from app.agents.common import history_turns
 from app.agents.prompts import load_text
-from app.agents.state import AgentDeps, AgentResult, GraphState
+from app.agents.state import AgentDeps, GraphState
 from app.llm.base import ChatMessage
 
 NAME = "general"
@@ -41,11 +41,3 @@ async def answer(state: GraphState, deps: AgentDeps, *, intent: str = NAME) -> s
         temperature=deps.settings.general_chat_temperature,
     )
     return resp.text.strip()
-
-
-async def run(state: GraphState, deps: AgentDeps) -> AgentResult:
-    await deps.emit(NAME, "답변을 생각하는 중")
-    text = await answer(state, deps)
-    if not text:
-        return AgentResult(agent=NAME, content="", ok=False, error="empty_answer")
-    return AgentResult(agent=NAME, content=text, generated=True, grounded=False)

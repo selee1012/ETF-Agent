@@ -1,18 +1,21 @@
 """에이전트 그래프(LangGraph).
 
-질문 → preprocess → orchestrate ─┬→ etf_info ─┐
-                                ├→ faq      ─┼→ compose → guard ─┬→ END (통과)
-                                ├→ disclosure┘                   ├→ retry → (해당 에이전트 재실행) …
-                                ├→ general  ┘ (일반 대화, 로컬 전용)  └→ safe → END (재생성 후 실패)
+질문 → preprocess → orchestrate ─┬→ etf_info ─┐  (자료 수집, LLM 없음, 동시에)
+      (의도 분류 ∥ 문서 검색 선행)  ├→ faq      ─┼→ compose → guard ─┬→ END (통과)
+                                ├→ disclosure┘  (LLM 1회)        ├→ retry → compose (합성만 다시)
+                                ├→ compose (일반 대화, 로컬 전용)   └→ safe → END (재생성 후 실패)
                                 └→ template → END
 
-- 복수 의도는 해당 에이전트 노드로 동시에 분기(LangGraph 병렬 superstep)해 compose에서 합친다. # P1-AG-02
+- 의도 분류(LLM)와 문서 검색(임베딩)을 동시에 보낸다. FAQ 수집은 미리 검색한 결과를 쓴다. # P1-AG-02
+- 복수 의도는 수집 노드로 동시에 분기(LangGraph 병렬 superstep)하고, compose가 모은 자료로
+  LLM을 한 번만 불러 하나의 답을 쓴다.
 - 고위험·추천·범위 밖은 생성하지 않고 템플릿으로 답한다. # P1-AG-06 ③
-- 가드 실패 시 1회 재생성, 다시 실패하면 안전 답변 + 문의 채널. # P1-AG-06
-- GENERAL_CHAT_ENABLED(APP_ENV=local 전용)면 범위 밖 질문은 템플릿 대신 general 에이전트가 답한다.
+- 가드 실패 시 합성만 1회 재생성, 다시 실패하면 안전 답변 + 문의 채널. # P1-AG-06
+- GENERAL_CHAT_ENABLED(APP_ENV=local 전용)면 범위 밖 질문은 템플릿 대신 compose가 일반 대화로 답한다.
   ETF·투자와 무관한 추천·시점 질문('저녁 메뉴 추천해줘')도 general로 보낸다.
 """
 
+import asyncio
 from functools import lru_cache
 from typing import Any
 
@@ -21,7 +24,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app import cache
 from app.agents import compose as composer
-from app.agents import disclosure, etf_info, faq, general
+from app.agents import disclosure, etf_info, faq
 from app.agents.guard import run_guard
 from app.agents.guard.templates import high_risk_answer, safe_answer, template_answer
 from app.agents.orchestrator import classify
@@ -42,11 +45,11 @@ from app.logging import get_logger
 log = get_logger(__name__)
 
 MAX_RETRIES = 1
+# 자료 수집 노드(LLM 없음)
 _AGENTS = {
     "etf_info": etf_info.run,
     "faq": faq.run,
     "disclosure": disclosure.run,
-    "general": general.run,
 }
 
 
@@ -78,7 +81,11 @@ async def orchestrate_node(state: GraphState, config: RunnableConfig) -> dict[st
     deps = _deps(config)
     await deps.emit("orchestrate", "질문 유형을 파악하는 중")
     entities = state.get("entities") or []
-    intents, source = await classify(deps.llm, state["normalized"], has_entity=bool(entities))
+    # 의도 분류(LLM)와 문서 검색(임베딩·DB)을 동시에 보낸다. 캐시 적중이 예상되면 검색은 생략.
+    (intents, source), prefetched = await asyncio.gather(
+        classify(deps.llm, state["normalized"], has_entity=bool(entities)),
+        _prefetch(state, deps),
+    )
     context = state.get("context_tickers") or []
     # 멀티턴: ETF 없이 정보 항목만 묻는 후속 질문('그럼 괴리율은?')은 직전 턴 ETF의 정보 질문으로 본다.
     if (
@@ -90,7 +97,11 @@ async def orchestrate_node(state: GraphState, config: RunnableConfig) -> dict[st
         intents = [Intent.ETF_INFO.value]
     if deps.settings.general_chat_enabled:
         intents = _general_override(intents, state["normalized"], bool(entities or context))
-    update: dict[str, Any] = {"intents": intents, "intent_source": source}
+    update: dict[str, Any] = {
+        "intents": intents,
+        "intent_source": source,
+        "prefetched_chunks": prefetched,
+    }
     # 이번 질문에 ETF가 없으면 직전 턴의 ETF를 이어 쓴다(ETF 정보·공시 의도일 때만).
     if not entities and context and (Intent.ETF_INFO in intents or Intent.DISCLOSURE in intents):
         catalog = {c.ticker: c for c in await load_catalog(deps.maker)}
@@ -98,6 +109,17 @@ async def orchestrate_node(state: GraphState, config: RunnableConfig) -> dict[st
             EtfEntity(t, catalog[t].name, "", 0.0, "context") for t in context if t in catalog
         ]
     return update
+
+
+async def _prefetch(state: GraphState, deps: AgentDeps) -> list[Any] | None:
+    """FAQ 근거 검색을 미리 해 둔다. 실패하면 None(FAQ 수집 노드가 다시 시도한다)."""
+    if faq.cached_answer(state) is not None:
+        return None
+    try:
+        return await faq.retrieve(state, deps)
+    except LLMError as e:
+        log.info("prefetch_failed", error=type(e).__name__)
+        return None
 
 
 def _general_override(intents: list[str], text: str, has_etf_context: bool) -> list[str]:
@@ -118,7 +140,7 @@ def _agent_node(name: str):
         deps = _deps(config)
         try:
             result = await _AGENTS[name](state, deps)
-        except LLMError as e:  # LLM 실패(폴백 없음) → 이 에이전트만 실패 처리
+        except LLMError as e:  # 임베딩 등 외부 호출 실패 → 이 수집만 실패 처리
             log.warning("agent_llm_failed", agent=name, error=type(e).__name__)
             result = AgentResult(agent=name, content="", ok=False, error="llm_unavailable")
         return {"results": {name: result}, "agents_called": [name]}
@@ -152,17 +174,22 @@ async def template_node(state: GraphState, config: RunnableConfig) -> dict[str, 
 
 async def compose_node(state: GraphState, config: RunnableConfig) -> dict[str, Any]:
     deps = _deps(config)
-    await deps.emit("compose", "답변을 정리하는 중")
+    await deps.emit("compose", "답변을 작성하는 중")
     intents = state["intents"]
-    body, sources, evidence, all_failed = composer.compose(intents, state.get("results") or {})
+    c = await composer.synthesize(state, deps)
     ids = composer.required_disclaimers(intents)
     return {
-        "body": body,
-        "sources": sources,
-        "evidence": evidence,
+        "body": c.body,
+        "sources": c.sources,
+        "evidence": c.evidence,
+        "generated": c.generated,
+        "grounded": c.grounded,
+        "cached": c.cached,
+        "cache_key": c.cache_key,
         "disclaimer_ids": ids,
-        "answer": "" if all_failed else composer.full_answer(body, ids),
-        "verdict": Verdict.LLM_UNAVAILABLE if all_failed else "",
+        "answer": "" if c.failed else composer.full_answer(c.body, ids),
+        "verdict": Verdict.LLM_UNAVAILABLE if c.failed else "",
+        "agents_called": c.agents,
     }
 
 
@@ -172,9 +199,7 @@ async def guard_node(state: GraphState, config: RunnableConfig) -> dict[str, Any
     if state.get("verdict") == Verdict.LLM_UNAVAILABLE:
         return {"guard_history": [["llm_unavailable"]]}
     await deps.emit("guard", "답변을 점검하는 중")
-    results = state.get("results") or {}
-    active = [r for r in results.values() if r.ok and r.agent in state["intents"]]
-    if active and all(r.cached for r in active):
+    if state.get("cached"):
         res_reasons, passed = ["note:cache_hit"], True
     else:
         ids = state.get("disclaimer_ids") or []
@@ -185,16 +210,22 @@ async def guard_node(state: GraphState, config: RunnableConfig) -> dict[str, Any
             included_disclaimers=ids,
             required_disclaimers=composer.required_disclaimers(state["intents"]),
             evidence=state.get("evidence") or [],
-            generated=any(r.generated for r in active),
-            grounded=all(r.grounded for r in active),
+            generated=bool(state.get("generated")),
+            grounded=state.get("grounded", True),
         )
         res_reasons, passed = g.reasons, g.passed
     if passed:
         verdict = Verdict.PASS if state.get("attempt", 0) == 0 else Verdict.PASS_AFTER_RETRY
-        # 가드를 통과한 FAQ 답변만 캐시(키 faq:{level}:{hash})
-        for r in active:
-            if r.cache_key and not r.cached:
-                cache.faq_cache()[r.cache_key] = r
+        # 가드를 통과한 FAQ 단독 답변만 캐시(키 faq:{level}:{hash})
+        key = state.get("cache_key")
+        if key and not state.get("cached"):
+            cache.faq_cache()[key] = AgentResult(
+                agent=faq.NAME,
+                content=state["body"],
+                sources=list(state.get("sources") or []),
+                evidence=list(state.get("evidence") or []),
+                generated=True,
+            )
         return {"verdict": verdict, "guard_history": [res_reasons]}
     return {"verdict": "", "retry_feedback": res_reasons, "guard_history": [res_reasons]}
 
@@ -220,12 +251,9 @@ async def safe_node(state: GraphState, config: RunnableConfig) -> dict[str, Any]
 def route_intents(state: GraphState) -> list[str]:
     intents = state.get("intents") or [Intent.OUT_OF_SCOPE]
     targets = [i for i in intents if i in _AGENTS]
-    return targets or ["template"]
-
-
-def route_retry(state: GraphState) -> list[str]:
-    """재생성 대상: 실패 사유와 무관하게 해당 의도의 에이전트를 다시 돌린다."""
-    return route_intents(state)
+    if targets:
+        return targets
+    return ["compose"] if Intent.GENERAL in intents else ["template"]
 
 
 def route_guard(state: GraphState) -> str:
@@ -252,14 +280,14 @@ def build_graph():
 
     g.add_edge(START, "preprocess")
     g.add_edge("preprocess", "orchestrate")
-    agent_targets = [*_AGENTS, "template"]
+    agent_targets = [*_AGENTS, "compose", "template"]
     g.add_conditional_edges("orchestrate", route_intents, agent_targets)
     for name in _AGENTS:
         g.add_edge(name, "compose")
     g.add_edge("template", END)
     g.add_edge("compose", "guard")
     g.add_conditional_edges("guard", route_guard, {"end": END, "retry": "retry", "safe": "safe"})
-    g.add_conditional_edges("retry", route_retry, list(_AGENTS))
+    g.add_edge("retry", "compose")  # 재생성은 합성만 다시(자료는 이미 모았다)
     g.add_edge("safe", END)
     return g.compile()
 

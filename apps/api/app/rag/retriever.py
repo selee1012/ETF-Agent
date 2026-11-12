@@ -1,5 +1,9 @@
-"""하이브리드 검색: pgvector 코사인 + pg_trgm word_similarity 가중합. # P1-AG-04"""
+"""하이브리드 검색: pgvector 코사인 + pg_trgm word_similarity 가중합. # P1-AG-04
 
+질문 임베딩(외부 API)과 키워드 후보 조회(DB)는 서로 기다릴 필요가 없어 동시에 보낸다.
+"""
+
+import asyncio
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,9 +42,11 @@ async def hybrid_search(
     vector_weight: float = 0.7,
     candidates: int = 20,
 ) -> list[RetrievedChunk]:
-    qvec = await embed_query(embedder, query)
+    # 같은 세션을 동시에 두 쿼리가 쓰지 않도록 DB 조회는 하나씩, 임베딩 호출만 겹친다.
+    qvec, trg = await asyncio.gather(
+        embed_query(embedder, query), doc_repo.trgm_candidates(session, query, candidates)
+    )
     vec = await doc_repo.vector_candidates(session, qvec, candidates)
-    trg = await doc_repo.trgm_candidates(session, query, candidates)
     ids = set(vec) | set(trg)
     scored = sorted(
         (

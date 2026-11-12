@@ -108,7 +108,7 @@ async def test_multiturn_carries_previous_etf(deps: AgentDeps) -> None:
 
 async def test_llm_down_faq_returns_safe_answer(deps: AgentDeps, fake_llm: FakeLLM) -> None:
     fake_llm.push("classify", LLMError("down"))
-    fake_llm.push("faq_answer", LLMError("down"))
+    fake_llm.push("answer", LLMError("down"))
     st = await ask(deps, "분배금은 언제 받아?")
     assert st["verdict"] == "llm_unavailable"
     assert "문의" in st["answer"]
@@ -116,16 +116,16 @@ async def test_llm_down_faq_returns_safe_answer(deps: AgentDeps, fake_llm: FakeL
 
 async def test_llm_down_etf_info_still_answers_from_db(deps: AgentDeps, fake_llm: FakeLLM) -> None:
     fake_llm.push("classify", LLMError("down"))
-    fake_llm.push("etf_summary", LLMError("down"))
+    fake_llm.push("answer", LLMError("down"))
     st = await ask(deps, "샘플 코스피200 시세")
     assert st["verdict"] == "pass"
     assert "36,180원" in st["answer"]
 
 
 def test_strip_citations_and_cited_formats() -> None:
-    from app.agents.faq import _cited, strip_citations
+    from app.agents.faq import cited, strip_citations
 
     text = "괴리율은 가격 차이입니다 [1]. 확인이 필요합니다.[2][3]\n- 항목 [1, 4]"
     assert strip_citations(text) == "괴리율은 가격 차이입니다. 확인이 필요합니다.\n- 항목"
-    assert _cited(text, 4) == [1, 2, 3, 4]
-    assert _cited("인용 없음", 2) == [1, 2]
+    assert cited(text, 4) == [1, 2, 3, 4]
+    assert cited("인용 없음", 2) == [1, 2]

@@ -63,9 +63,9 @@ async def test_banned_answer_regenerates_once_then_safe_answer(
     deps: AgentDeps, fake_llm: FakeLLM
 ) -> None:
     bad = "ETF는 원금이 보장되는 안전한 상품입니다. [1]"
-    fake_llm.push("faq_answer", bad, bad)
+    fake_llm.push("answer", bad, bad)
     st = await run_graph(deps, request_id="t", query="ETF가 뭐야?")
-    assert fake_llm.count("faq_answer") == 2  # 최초 1회 + 재생성 1회
+    assert fake_llm.count("answer") == 2  # 최초 1회 + 재생성 1회
     assert st["verdict"] == "blocked"
     assert "원금이 보장되는" not in st["answer"]
     assert "문의" in st["answer"]  # 안전 답변 + 문의 채널
@@ -74,7 +74,7 @@ async def test_banned_answer_regenerates_once_then_safe_answer(
 
 async def test_regeneration_can_pass(deps: AgentDeps, fake_llm: FakeLLM) -> None:
     fake_llm.push(
-        "faq_answer",
+        "answer",
         "ETF는 무조건 오릅니다. [1]",
         "ETF는 지수를 따라가도록 만든 펀드를 거래소에 상장한 상품입니다. [1]",
     )
@@ -100,7 +100,7 @@ async def test_judge_unparsed_does_not_block(deps: AgentDeps, fake_llm: FakeLLM)
 
 
 async def test_ungrounded_number_in_summary_blocks(deps: AgentDeps, fake_llm: FakeLLM) -> None:
-    fake_llm.push("etf_summary", "샘플 코스피200의 괴리율은 9.99%입니다.")
+    fake_llm.push("answer", "샘플 코스피200의 괴리율은 9.99%입니다.")
     st = await run_graph(deps, request_id="t", query="샘플 코스피200 괴리율")
     # 재생성 시도에서는 요약 없이 DB 표만 내보내므로 통과한다
     assert st["verdict"] == "pass_after_retry"

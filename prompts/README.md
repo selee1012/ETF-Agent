@@ -5,9 +5,9 @@
 | 경로 | 쓰는 곳 | 설명 |
 | --- | --- | --- |
 | `system/classifier.md` | 오케스트레이터(P1-AG-02) | 의도 분류 JSON 지시 |
-| `system/faq_{beginner,intermediate,expert}.md` | FAQ 에이전트(P1-AG-04) | 설명 수준별 시스템 프롬프트 |
-| `system/etf_summary.md` | ETF 정보 에이전트(P1-AG-03) | DB 표를 한두 문장으로 요약 |
-| `system/disclosure_summary.md` | 공시 요약 에이전트(P1-AG-05) | 공시 목록 요약 |
+| `system/answer_{beginner,intermediate,expert}.md` | 답변 합성(P1-AG-06) | 설명 수준별 역할·구성·분량·형식 예시 |
+| `system/answer_rules.md` | 답변 합성 | 입력 자료([ETF 데이터]·[공시]·[근거 N]) 설명, 작성 순서, 공통 규칙. 수준별 파일 뒤에 붙는다 |
+| `system/general.md` | 일반 대화(로컬 전용) | 근거 없는 자유 답변 |
 | `guard/rules.yaml` | 가드 ①(P1-AG-06) | 금칙 표현 정규식, 근거 수치 검사 설정 |
 | `guard/disclaimers.yaml` | 가드 ①·합성 | 의도별 필수 고지 |
 | `guard/judge.md` | 가드 ② | 검증 모델 JSON 판정 지시 |
