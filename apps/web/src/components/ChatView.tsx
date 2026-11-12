@@ -231,9 +231,7 @@ export function ChatView({ onAuthError }: { onAuthError: () => void }) {
                 void ask(input)
               }
             }}
-            placeholder={
-              busy ? '답변을 기다리는 중이에요…' : '질문을 입력하세요 (Shift+Enter 줄바꿈)'
-            }
+            placeholder={busy ? '답변을 기다리는 중이에요…' : '질문을 입력하세요'}
             disabled={busy}
             rows={1}
             maxLength={2000}

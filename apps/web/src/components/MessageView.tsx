@@ -124,7 +124,7 @@ function Feedback({ messageId }: { messageId: string }) {
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="어떤 부분이 틀렸는지 알려 주세요 (개인정보는 자동으로 가려집니다)"
+            placeholder="어떤 부분이 틀렸는지 알려 주세요"
             rows={2}
           />
           <button type="submit" disabled={!text.trim()}>
