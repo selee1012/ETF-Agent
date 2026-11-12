@@ -1,12 +1,16 @@
-// 답변용 최소 마크다운 렌더러: 제목, 굵게·기울임, 링크, 목록, 표, 인용, 구분선.
+// 답변용 최소 마크다운 렌더러: 제목, 굵게·기울임, 인라인 코드, 링크, 목록(순서 없음·번호), 표, 인용,
+// 구분선, 코드 블록.
 // innerHTML을 쓰지 않고 React 요소로만 만든다(XSS 방지).
 import type { ReactNode } from 'react'
 
-const INLINE = /(\*\*[^*]+\*\*|_[^_]+_|\[[^\]]+\]\((?:https?:\/\/)[^)\s]+\))/g
+const INLINE = /(`[^`]+`|\*\*[^*]+\*\*|_[^_]+_|\[[^\]]+\]\((?:https?:\/\/)[^)\s]+\))/g
+const LIST_ITEM = /^(\s*)([-*]|\d{1,3}[.)])\s+(.*)$/
+const BLOCK_START = /^(#{1,6}\s|\||>|---|```|\s*([-*]|\d{1,3}[.)])\s)/
 
 function inline(text: string, keyBase: string): ReactNode[] {
   return text.split(INLINE).map((part, i) => {
     const key = `${keyBase}-${i}`
+    if (/^`[^`]+`$/.test(part)) return <code key={key}>{part.slice(1, -1)}</code>
     if (/^\*\*[^*]+\*\*$/.test(part)) return <strong key={key}>{part.slice(2, -2)}</strong>
     if (/^_[^_]+_$/.test(part)) return <em key={key}>{part.slice(1, -1)}</em>
     const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(part)
@@ -18,6 +22,28 @@ function inline(text: string, keyBase: string): ReactNode[] {
       )
     return part
   })
+}
+
+type ListItem = { text: string; nested: { ordered: boolean; items: string[] } | null }
+
+function List({ ordered, items, k }: { ordered: boolean; items: ListItem[]; k: string }) {
+  const Tag = ordered ? 'ol' : 'ul'
+  return (
+    <Tag>
+      {items.map((it, j) => (
+        <li key={j}>
+          {inline(it.text, `${k}l${j}`)}
+          {it.nested && (
+            <List
+              ordered={it.nested.ordered}
+              items={it.nested.items.map((t) => ({ text: t, nested: null }))}
+              k={`${k}l${j}n`}
+            />
+          )}
+        </li>
+      ))}
+    </Tag>
+  )
 }
 
 function cells(row: string): string[] {
@@ -37,6 +63,18 @@ export function Markdown({ text }: { text: string }) {
     const key = `b${i}`
     if (!line.trim()) {
       i++
+      continue
+    }
+    if (/^```/.test(line)) {
+      const code: string[] = []
+      i++
+      while (i < lines.length && !/^```/.test(lines[i])) code.push(lines[i++])
+      i++ // 닫는 ``` (스트리밍 중이면 아직 없을 수 있다)
+      out.push(
+        <pre key={key}>
+          <code>{code.join('\n')}</code>
+        </pre>,
+      )
       continue
     }
     if (/^\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\|\s*-/.test(lines[i + 1])) {
@@ -89,36 +127,28 @@ export function Markdown({ text }: { text: string }) {
       out.push(<blockquote key={key}>{inline(quote.join(' '), key)}</blockquote>)
       continue
     }
-    if (/^\s*[-*]\s+/.test(line)) {
-      const items: { text: string; nested: string[] }[] = []
-      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
-        const indent = /^\s+/.test(lines[i])
-        const t = lines[i].replace(/^\s*[-*]\s+/, '')
-        if (indent && items.length) items[items.length - 1].nested.push(t)
-        else items.push({ text: t, nested: [] })
+    const first = LIST_ITEM.exec(line)
+    if (first) {
+      const ordered = /\d/.test(first[2])
+      const items: ListItem[] = []
+      for (let m = LIST_ITEM.exec(lines[i] ?? ''); m; m = LIST_ITEM.exec(lines[i] ?? '')) {
+        const isOrdered = /\d/.test(m[2])
+        if (m[1].length > 0 && items.length) {
+          const parent = items[items.length - 1]
+          parent.nested ??= { ordered: isOrdered, items: [] }
+          parent.nested.items.push(m[3])
+        } else if (isOrdered === ordered) {
+          items.push({ text: m[3], nested: null })
+        } else {
+          break // 종류가 다른 목록은 새 목록으로
+        }
         i++
       }
-      out.push(
-        <ul key={key}>
-          {items.map((it, j) => (
-            <li key={j}>
-              {inline(it.text, `${key}l${j}`)}
-              {it.nested.length > 0 && (
-                <ul>
-                  {it.nested.map((n, k) => (
-                    <li key={k}>{inline(n, `${key}l${j}n${k}`)}</li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          ))}
-        </ul>,
-      )
+      out.push(<List key={key} ordered={ordered} items={items} k={key} />)
       continue
     }
     const para: string[] = [lines[i++]] // 최소 한 줄은 소비한다(무한 루프 방지)
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|\||>|---|\s*[-*]\s)/.test(lines[i]))
-      para.push(lines[i++])
+    while (i < lines.length && lines[i].trim() && !BLOCK_START.test(lines[i])) para.push(lines[i++])
     out.push(<p key={key}>{inline(para.join(' '), key)}</p>)
   }
   return <div className="md">{out}</div>

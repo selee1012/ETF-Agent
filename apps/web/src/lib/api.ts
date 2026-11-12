@@ -7,7 +7,14 @@ export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localh
 const TOKEN_KEY = 'etf-agent.token'
 const USER_KEY = 'etf-agent.user'
 
-export type User = { id: string; email: string; role: 'user' | 'admin' | string }
+export type Level = 'beginner' | 'intermediate' | 'expert'
+// level이 null이면 아직 설명 수준을 고르지 않은 사용자(온보딩 화면을 띄운다)
+export type User = {
+  id: string
+  email: string
+  role: 'user' | 'admin' | string
+  level: Level | null
+}
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
@@ -53,6 +60,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     if (resp.status === 401) clearSession()
     throw new ApiError(resp.status, detail)
   }
+  if (resp.status === 204) return undefined as T
   return (await resp.json()) as T
 }
 
@@ -66,8 +74,18 @@ export async function devLogin(email: string): Promise<User> {
   return res.user
 }
 
+function storeUser(user: User): User {
+  localStorage.setItem(USER_KEY, JSON.stringify(user))
+  return user
+}
+
+/** 서버의 최신 프로필(설명 수준 포함)로 저장된 사용자 정보를 갱신한다. */
+export const getMe = () => request<User>('/auth/me').then(storeUser)
+
+export const updateProfile = (body: { level: Level }) =>
+  request<User>('/auth/me', { method: 'PATCH', body: JSON.stringify(body) }).then(storeUser)
+
 // ---------- 채팅 ----------
-export type Level = 'beginner' | 'intermediate' | 'expert'
 export type Source = {
   title: string
   location: string | null
@@ -89,9 +107,10 @@ export type ChatHandlers = {
   onDone: (done: DoneEvent) => void
 }
 
-/** POST /chat SSE를 fetch 스트림으로 읽는다(EventSource는 POST를 지원하지 않는다). */
+/** POST /chat SSE를 fetch 스트림으로 읽는다(EventSource는 POST를 지원하지 않는다).
+ * 설명 수준은 보내지 않는다: 서버가 사용자 프로필의 수준으로 답한다. */
 export async function streamChat(
-  body: { message: string; conversation_id?: string | null; level: Level },
+  body: { message: string; conversation_id?: string | null },
   handlers: ChatHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -156,6 +175,10 @@ export type StoredMessage = {
 export const listConversations = () => request<Conversation[]>('/history')
 export const getConversation = (id: string) =>
   request<Conversation & { messages: StoredMessage[] }>(`/history/${id}`)
+export const deleteConversation = (id: string) =>
+  request<void>(`/history/${id}`, { method: 'DELETE' })
+export const deleteAllConversations = () =>
+  request<{ deleted: number }>('/history', { method: 'DELETE' })
 
 export type FeedbackKind = 'like' | 'dislike' | 'correction'
 export const sendFeedback = (body: {

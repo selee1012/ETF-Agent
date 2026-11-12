@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { sendFeedback, type FeedbackKind, type Source } from '../lib/api'
 import { Markdown } from './Markdown'
 
@@ -9,21 +9,50 @@ export type ChatMessage = {
   status?: string | null
   sources?: Source[]
   messageId?: string | null
-  verdict?: string | null
-  intents?: string[]
   streaming?: boolean
+  startedAt?: number
   error?: string | null
 }
 
 const DISCLAIMER_HEADER = '---\n**고지**'
 
-const VERDICT_LABEL: Record<string, string> = {
-  pass: '점검 통과',
-  pass_after_retry: '재작성 후 통과',
-  blocked: '안전 답변으로 대체',
-  template: '고정 안내',
-  llm_unavailable: '모델 응답 불가',
-  error: '오류',
+// 예전에 저장된 답변에 남아 있는 근거 번호([1], [1, 2])와 '설명 수준' 줄을 화면에서 지운다
+const CITATION = /[ \t]*\[\d{1,2}(?:\s*,\s*\d{1,2})*\]/g
+const LEVEL_LINE = /^\s*_설명 수준:[^\n]*_\s*$/gm
+
+function cleanAnswer(text: string): string {
+  return text.replace(LEVEL_LINE, '').replace(CITATION, '').trim()
+}
+
+/** 답변을 기다리는 동안 지난 시간(초). */
+function useElapsed(startedAt: number | undefined, running: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!running) return
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [running])
+  return startedAt ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0
+}
+
+function Waiting({ status, seconds }: { status?: string | null; seconds: number }) {
+  return (
+    <div className="waiting" role="status" aria-live="polite">
+      <span className="typing" aria-hidden>
+        <i />
+        <i />
+        <i />
+      </span>
+      <span>
+        <strong>답변을 준비하고 있어요</strong>
+        <span className="muted small">
+          {status ?? '처리 중'}
+          {seconds > 0 && ` · ${seconds}초`}
+          {seconds >= 15 && ' · 자세한 설명은 조금 더 걸려요'}
+        </span>
+      </span>
+    </div>
+  )
 }
 
 function splitDisclaimer(content: string): [string, string | null] {
@@ -109,6 +138,8 @@ function Feedback({ messageId }: { messageId: string }) {
 }
 
 export function MessageView({ m }: { m: ChatMessage }) {
+  const waiting = m.role === 'assistant' && !!m.streaming && !m.content
+  const seconds = useElapsed(m.startedAt, waiting)
   if (m.role === 'user') {
     return (
       <div className="msg user">
@@ -116,15 +147,12 @@ export function MessageView({ m }: { m: ChatMessage }) {
       </div>
     )
   }
-  const [body, disclaimer] = splitDisclaimer(m.content)
+  const [raw, disclaimer] = splitDisclaimer(m.content)
+  const body = cleanAnswer(raw)
   return (
     <div className="msg assistant">
       <div className="bubble">
-        {m.streaming && m.status && !m.content && (
-          <div className="status">
-            <span className="spinner" aria-hidden /> {m.status}
-          </div>
-        )}
+        {waiting && <Waiting status={m.status} seconds={seconds} />}
         {body && <Markdown text={body} />}
         {m.streaming && m.content && <span className="cursor" aria-hidden />}
         {m.error && <p className="error">{m.error}</p>}
@@ -134,12 +162,6 @@ export function MessageView({ m }: { m: ChatMessage }) {
           </aside>
         )}
         {!m.streaming && <SourceList sources={m.sources ?? []} />}
-        {!m.streaming && m.verdict && (
-          <div className="meta muted">
-            {m.intents?.length ? `의도: ${m.intents.join(', ')} · ` : ''}
-            가드: {VERDICT_LABEL[m.verdict] ?? m.verdict}
-          </div>
-        )}
         {!m.streaming && m.messageId && <Feedback messageId={m.messageId} />}
       </div>
     </div>
