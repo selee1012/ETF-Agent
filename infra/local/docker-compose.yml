@@ -85,6 +85,8 @@ services:
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
       VITE_AUTH_MODE: ${VITE_AUTH_MODE:-local}
+      # 바인드 마운트에서 파일 변경 알림이 오지 않아 수정이 반영되지 않던 문제(colima) 대응
+      VITE_USE_POLLING: "true"
     volumes:
       - ../../apps/web:/app
       - web_node_modules:/app/node_modules
