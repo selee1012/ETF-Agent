@@ -1,9 +1,10 @@
 import { useCallback, useState } from 'react'
+import { AdminView } from './components/AdminView'
 import { ChatView } from './components/ChatView'
 import { Login } from './components/Login'
 import { clearSession, getStoredUser, getToken, type User } from './lib/api'
 
-type View = 'chat'
+type View = 'chat' | 'admin'
 
 function App() {
   const [user, setUser] = useState<User | null>(() => (getToken() ? getStoredUser() : null))
@@ -30,6 +31,15 @@ function App() {
           >
             채팅
           </button>
+          {user.role === 'admin' && (
+            <button
+              type="button"
+              className={view === 'admin' ? 'tab on' : 'tab'}
+              onClick={() => setView('admin')}
+            >
+              운영
+            </button>
+          )}
         </nav>
         <span className="spacer" />
         <span className="muted small user-email">{user.email}</span>
@@ -37,7 +47,11 @@ function App() {
           로그아웃
         </button>
       </header>
-      <ChatView onAuthError={logout} />
+      {view === 'admin' && user.role === 'admin' ? (
+        <AdminView />
+      ) : (
+        <ChatView onAuthError={logout} />
+      )}
     </div>
   )
 }

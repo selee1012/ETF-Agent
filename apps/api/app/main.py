@@ -12,7 +12,7 @@ from app.container import build_container
 from app.db import dispose_engine
 from app.logging import configure_logging, get_logger
 from app.observability.metrics import observe_http
-from app.routers import auth, chat, feedback, health, history, metrics
+from app.routers import admin, auth, chat, feedback, health, history, metrics
 from app.settings import Settings, get_settings
 
 log = get_logger(__name__)
@@ -65,7 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
     )
-    for r in (health, auth, chat, history, feedback, metrics):
+    for r in (health, auth, chat, history, feedback, admin, metrics):
         app.include_router(r.router)
 
     log.info(
