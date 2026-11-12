@@ -16,6 +16,26 @@ HIGH_RISK = _P(
     r"세금\s*(얼마|계산해)",
     r"(손실|손해).{0,12}(보상|보전|물어|책임져|배상|돌려)",
 )
+# 위험 요청: 탐지 즉시 차단(LLM을 부르지 않는다). 사유('허가받았다', '교육 목적')와 무관하게 막는다. # P1-AG-06
+BLOCKED = _P(
+    # 해킹·보안 공격
+    r"해킹|크래킹|모의\s*침투|침투\s*테스트|펜\s*테스트|pen\s*test|익스플로잇|exploit",
+    r"취약점.{0,12}(점검|찾|스캔|공격|분석|진단|뚫)|보안.{0,6}(뚫|우회|무력화)",
+    r"sql\s*(인젝션|injection)|xss|csrf|ddos|디도스|랜섬웨어|악성\s*코드|멀웨어|malware|백도어|키로거",
+    r"피싱\s*(사이트|메일|페이지).{0,10}(만들|제작)|무차별\s*대입|brute\s*force",
+    r"(비밀번호|패스워드|암호|계정|관리자\s*권한).{0,10}(뚫|크랙|탈취|알아내|훔)",
+    r"(개인정보|고객\s*정보|데이터베이스|db|디비|서버).{0,10}(탈취|빼내|털어|털고|유출시|침입|뚫)",
+    # 프롬프트 인젝션·지침 무력화
+    r"(이전|위의?|앞의?|기존|모든|지금까지).{0,8}(지시|지침|명령|규칙|프롬프트|설정).{0,12}(무시|잊어|따르지|버려|초기화|삭제)",
+    r"ignore.{0,30}(instruction|prompt|rule)|disregard.{0,30}(instruction|prompt|rule)",
+    r"시스템\s*프롬프트|system\s*prompt|개발자\s*모드|developer\s*mode|jailbreak|탈옥|프롬프트\s*인젝션",
+    r"(프롬프트|지침|지시문|내부\s*설정|초기\s*설정).{0,10}(보여|알려|출력|공개|말해|뭐야|뭐니|유출)",
+    r"(제한|제약|필터|검열|안전\s*장치|규칙).{0,6}(없이|해제하고|풀고|끄고|무시하고|우회해서).{0,12}(답|대답|말해|알려|응답|출력)",
+    r"(지금부터|이제부터)\s*(너는|넌|당신은)|너는\s*(이제|지금부터)",
+    # 그 밖의 명백한 불법·위해
+    r"(폭탄|폭발물|마약|총기|독극물).{0,10}(만들|제조|구하|구입|사는)",
+    r"(주가|시세)\s*(조작|조종).{0,10}(방법|하는\s*법|하려면|알려|해줘)|작전\s*세력.{0,10}(방법|하는\s*법)",
+)
 RECOMMEND = _P(
     r"추천",
     r"골라\s*(줘|주세요)",
@@ -63,7 +83,13 @@ def is_high_risk(text: str) -> bool:
     return _any(HIGH_RISK, text)
 
 
+def is_blocked(text: str) -> bool:
+    return _any(BLOCKED, text)
+
+
 def classify_rules(text: str, *, has_entity: bool) -> list[str]:
+    if is_blocked(text):
+        return [Intent.BLOCKED]
     if is_high_risk(text):
         return [Intent.HIGH_RISK]
     if _any(RECOMMEND, text):

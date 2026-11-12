@@ -19,13 +19,15 @@ class Intent(StrEnum):
     HIGH_RISK = "high_risk"
     RECOMMENDATION = "recommendation"
     OUT_OF_SCOPE = "out_of_scope"
+    # 해킹·불법 행위 방법 요청, 지침 무력화(프롬프트 인젝션) 시도: 생성 없이 즉시 차단 # P1-AG-06
+    BLOCKED = "blocked"
     # 일반 대화(GENERAL_CHAT_ENABLED, 로컬 전용). 분류기가 내지 않고 오케스트레이터가 바꿔 넣는다.
     GENERAL = "general"
 
 
 # 전문 에이전트가 처리하는 의도(나머지는 템플릿)
 AGENT_INTENTS = (Intent.ETF_INFO, Intent.FAQ, Intent.DISCLOSURE)
-TEMPLATE_INTENTS = (Intent.HIGH_RISK, Intent.RECOMMENDATION, Intent.OUT_OF_SCOPE)
+TEMPLATE_INTENTS = (Intent.BLOCKED, Intent.HIGH_RISK, Intent.RECOMMENDATION, Intent.OUT_OF_SCOPE)
 
 
 class Level(StrEnum):

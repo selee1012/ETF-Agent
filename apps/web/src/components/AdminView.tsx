@@ -12,7 +12,7 @@ import {
   type Trace,
 } from '../lib/api'
 
-const INTENTS = ['', 'etf_info', 'faq', 'disclosure', 'high_risk', 'recommendation', 'out_of_scope']
+const INTENTS = ['', 'etf_info', 'faq', 'disclosure', 'high_risk', 'recommendation', 'out_of_scope', 'blocked']
 const VERDICTS = ['', 'pass', 'pass_after_retry', 'blocked', 'template', 'llm_unavailable', 'error']
 type Tab = 'traces' | 'feedback' | 'documents'
 

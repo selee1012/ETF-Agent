@@ -79,7 +79,7 @@ async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> A
             request_id=request_id, meta={"level": level.value},
         )  # fmt: skip
         await session.commit()
-    history = [{"role": m.role, "content": m.content} for m in history_rows]
+    history = [{"role": m.role, "content": m.content, "intent": m.intent} for m in history_rows]
     context_tickers: list[str] = []
     for m in reversed(history_rows):
         if m.role == "assistant" and m.meta.get("tickers"):

@@ -3,7 +3,7 @@
 import json
 import re
 
-from app.agents.orchestrator.rules import classify_rules, is_high_risk
+from app.agents.orchestrator.rules import classify_rules, is_blocked, is_high_risk
 from app.agents.prompts import load_text
 from app.agents.state import AGENT_INTENTS, Intent
 from app.llm.base import ChatMessage, LLMClient, LLMError
@@ -34,7 +34,9 @@ def parse_intents(text: str) -> list[str] | None:
 
 
 def finalize_intents(intents: list[str]) -> list[str]:
-    """배타 의도 정리: 고위험 > 추천 > 범위 밖. 전문 에이전트 의도는 순서 고정."""
+    """배타 의도 정리: 차단 > 고위험 > 추천 > 범위 밖. 전문 에이전트 의도는 순서 고정."""
+    if Intent.BLOCKED in intents:
+        return [Intent.BLOCKED.value]
     if Intent.HIGH_RISK in intents:
         return [Intent.HIGH_RISK.value]
     if Intent.RECOMMENDATION in intents:
@@ -47,6 +49,9 @@ async def classify(
     llm: LLMClient, text: str, *, has_entity: bool, history_hint: str = ""
 ) -> tuple[list[str], str]:
     """(의도 목록, 출처 'llm'|'rules')."""
+    # 위험 요청은 규칙에 걸리는 즉시 차단한다(LLM을 부르지 않는다). # P1-AG-06
+    if is_blocked(text):
+        return [Intent.BLOCKED.value], "rules"
     intents: list[str] | None = None
     try:
         user = f"{history_hint}\n질문: {text}" if history_hint else f"질문: {text}"

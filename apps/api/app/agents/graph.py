@@ -9,7 +9,8 @@
 - 의도 분류(LLM)와 문서 검색(임베딩)을 동시에 보낸다. FAQ 수집은 미리 검색한 결과를 쓴다. # P1-AG-02
 - 복수 의도는 수집 노드로 동시에 분기(LangGraph 병렬 superstep)하고, compose가 모은 자료로
   LLM을 한 번만 불러 하나의 답을 쓴다.
-- 고위험·추천·범위 밖은 생성하지 않고 템플릿으로 답한다. # P1-AG-06 ③
+- 차단(해킹·불법·지침 무력화)·고위험·추천·범위 밖은 생성하지 않고 템플릿으로 답한다. # P1-AG-06 ③
+  차단은 규칙에 걸리면 LLM 분류도 건너뛰고, 직전 답변이 차단이면 범위 밖 후속 질문도 차단한다.
 - 가드 실패 시 합성만 1회 재생성, 다시 실패하면 안전 답변 + 문의 채널. # P1-AG-06
 - GENERAL_CHAT_ENABLED(APP_ENV=local 전용)면 범위 밖 질문은 템플릿 대신 compose가 일반 대화로 답한다.
   ETF·투자와 무관한 추천·시점 질문('저녁 메뉴 추천해줘')도 general로 보낸다.
@@ -28,7 +29,7 @@ from app.agents import disclosure, etf_info, faq
 from app.agents.guard import run_guard
 from app.agents.guard.templates import high_risk_answer, safe_answer, template_answer
 from app.agents.orchestrator import classify
-from app.agents.orchestrator.rules import is_domain, is_followup_info
+from app.agents.orchestrator.rules import is_blocked, is_domain, is_followup_info
 from app.agents.preprocess import load_catalog, normalize, recognize_entities
 from app.agents.state import (
     AgentDeps,
@@ -95,6 +96,9 @@ async def orchestrate_node(state: GraphState, config: RunnableConfig) -> dict[st
         and is_followup_info(state["normalized"])
     ):
         intents = [Intent.ETF_INFO.value]
+    # 직전 답변이 차단이었는데 ETF 질문으로 돌아오지 않았다면('허가받았어', '교육 목적이야') 계속 차단한다.
+    if intents == [Intent.OUT_OF_SCOPE] and _last_blocked(state):
+        intents = [Intent.BLOCKED.value]
     if deps.settings.general_chat_enabled:
         intents = _general_override(intents, state["normalized"], bool(entities or context))
     update: dict[str, Any] = {
@@ -113,13 +117,20 @@ async def orchestrate_node(state: GraphState, config: RunnableConfig) -> dict[st
 
 async def _prefetch(state: GraphState, deps: AgentDeps) -> list[Any] | None:
     """FAQ 근거 검색을 미리 해 둔다. 실패하면 None(FAQ 수집 노드가 다시 시도한다)."""
-    if faq.cached_answer(state) is not None:
+    if faq.cached_answer(state) is not None or is_blocked(state["normalized"]):
         return None
     try:
         return await faq.retrieve(state, deps)
     except LLMError as e:
         log.info("prefetch_failed", error=type(e).__name__)
         return None
+
+
+def _last_blocked(state: GraphState) -> bool:
+    last = next(
+        (h for h in reversed(state.get("history") or []) if h.get("role") == "assistant"), None
+    )
+    return bool(last) and last.get("intent") == Intent.BLOCKED
 
 
 def _general_override(intents: list[str], text: str, has_etf_context: bool) -> list[str]:
@@ -154,7 +165,9 @@ async def template_node(state: GraphState, config: RunnableConfig) -> dict[str, 
     deps = _deps(config)
     channel = deps.settings.inquiry_channel
     intent = state["intents"][0]
-    if intent == Intent.HIGH_RISK:
+    if intent == Intent.BLOCKED:
+        answer, agent = template_answer("blocked", channel), "template:blocked"
+    elif intent == Intent.HIGH_RISK:
         kind, answer = high_risk_answer(state["normalized"], channel)
         agent = f"template:high_risk/{kind}"
     elif intent == Intent.RECOMMENDATION:
