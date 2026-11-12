@@ -125,8 +125,9 @@ LLM_MODEL=midm-2.0-mini
 ### 브라우저 사용
 
 - `http://localhost:5173` → 이메일만 입력(dev-login, `APP_ENV=local`에서만 열림)
-- 질문하면 진행 상태(`질문을 이해하는 중` → `ETF 정보를 찾는 중` …) → 토큰 스트리밍 → 출처·고지 → 👍/👎/정정
-- 설명 수준(입문·중급·숙련) 선택, 대화 목록(멀티턴, 최근 `HISTORY_TURNS`턴)
+- 처음 로그인하면 **설명 수준(입문·중급·숙련)** 을 고르고, 모든 답변이 그 수준에 맞춰 나온다. 상단 프로필 버튼에서 언제든 바꿀 수 있다
+- 질문하면 대기 표시(진행 상태 `질문을 이해하는 중` → `ETF 정보를 찾는 중` …, 경과 초) → 토큰 스트리밍 → 출처·고지 → 👍/👎/정정
+- 대화 목록(멀티턴, 최근 `HISTORY_TURNS`턴), 대화별 삭제(✕)·전체 삭제
 - `admin@local.test`(`ADMIN_EMAILS`)로 로그인하면 상단 **운영** 탭: 트레이스(의도·가드 필터), 피드백, 문서 업로드 → ingest → 검색 확인
 
 ### make 타깃
@@ -146,9 +147,11 @@ LLM_MODEL=midm-2.0-mini
 | --- | --- | --- |
 | `GET /health` | - | DB 확인(실패 시 503) |
 | `POST /auth/dev-login` | - | `{email}` → JWT. `APP_ENV=local`·`AUTH_PROVIDER=local`에서만 |
-| `GET /auth/me` | 사용자 | 현재 사용자 |
-| `POST /chat` | 사용자 | SSE. 본문 `{message, conversation_id?, level}` |
+| `GET /auth/me` | 사용자 | 내 프로필(`level`: 설명 수준, 미설정이면 `null`) |
+| `PATCH /auth/me` | 사용자 | `{level}` 설명 수준 변경 |
+| `POST /chat` | 사용자 | SSE. 본문 `{message, conversation_id?, level?}`. `level`을 빼면 프로필 수준(없으면 입문) |
 | `GET /history`, `GET /history/{id}` | 사용자 | 대화 목록·메시지 |
+| `DELETE /history/{id}`, `DELETE /history` | 사용자 | 내 대화 1건·전체 삭제(메시지까지, 되돌릴 수 없음). 피드백·트레이스는 운영 지표로 남는다 |
 | `POST /feedback` | 사용자 | `{kind: like\|dislike\|correction, message_id, correction_text?}` |
 | `GET /admin/traces?intent=&verdict=` | admin | 트레이스(질의 원문 없음) |
 | `GET /admin/feedback`, `GET/POST /admin/documents`, `GET /admin/search?q=` | admin | 피드백, 문서 목록·업로드(ingest), 검색 확인 |
@@ -327,6 +330,10 @@ my-rag-project/ 2주차 실습 RAG 프로토타입(.env, requirements.txt, rag_m
 | 2026-11-12 | Makefile은 `-include .env` 대신 필요한 값만 `?=`로 읽음 | `-include`가 셸의 `LLM_PROVIDER=fake`를 빈 값으로 덮어쓰는 문제 |
 | 2026-11-12 | `boto3`·`sse-starlette` 의존성 제거, `rapidfuzz`·`pyyaml`·`prometheus-client`·`python-multipart` 추가 | 폴백 미구현이라 boto3 불필요, SSE는 StreamingResponse로 충분 |
 | 2026-11-12 | 샘플 종목코드는 실존하지 않는 `9000x0`, 운용사도 가상 이름 | 실제 상품으로 오인되지 않게 |
+| 2026-11-12 | 설명 수준은 채팅마다 고르지 않고 사용자 프로필(`users.level`)에 저장, 첫 로그인 때 선택 | 한 번 정하면 계속 같은 수준이 맞고 화면이 단순해진다. 요청의 `level`은 선택값으로 남겨 API 호환 유지 |
+| 2026-11-12 | 답변 본문의 근거 번호 `[n]`·'설명 수준' 표시는 화면에서 지우고, 출처 목록만 보인다 | 번호는 출처를 고르는 데만 쓰고, 읽을 때는 방해가 된다 |
+| 2026-11-12 | 답변의 의도·가드 판정은 화면에 보이지 않고 운영 화면 트레이스에서만 본다 | 사용자에게는 의미 없는 내부 정보 |
+| 2026-11-12 | 대화 삭제 시 메시지는 지우고 피드백(`message_id`→NULL)·트레이스는 남긴다 | 사용자 데이터는 지우되, 원문 없는 운영 지표는 품질 관리에 필요 |
 | 2026-11-12 | 고도화 버전 LLM은 AWS(Bedrock 관리형 또는 자체 호스팅 vLLM), 로컬은 Ollama | 소형 로컬 모델보다 품질이 높고 모델 출처를 고를 수 있다. 외부 API 금지 정책이면 vLLM 자체 호스팅 |
 | 2026-11-12 | `boto3` 다시 추가, `llm/bedrock.py`에서만 import. 생성은 Converse API, 임베딩은 Titan v2·Cohere | 모델 공통 형식이라 모델 ID만 바꿔 쓴다. DB 1024차원 그대로 |
 | 2026-11-12 | Bedrock 자격 증명은 boto3 기본 체인만, 프로필 설정은 `BEDROCK_PROFILE` | 키를 설정에 두지 않는다. 빈 `AWS_PROFILE`이 컨테이너에 들어가 boto3가 깨지는 것을 피한다 |
