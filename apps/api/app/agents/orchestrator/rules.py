@@ -85,6 +85,11 @@ def classify_rules(text: str, *, has_entity: bool) -> list[str]:
     return intents or [Intent.OUT_OF_SCOPE]
 
 
+def is_domain(text: str) -> bool:
+    """ETF·투자 관련 표현이 있는지(일반 대화 모드에서 '저녁 메뉴 추천' 같은 질문을 가려낸다)."""
+    return _any(DOMAIN, text)
+
+
 def is_followup_info(text: str) -> bool:
     """'그럼 괴리율은?'처럼 정의 질문이 아닌 정보 항목만 묻는 후속 질문."""
     return _any(ETF_INFO, text) and not _any(FAQ_DEF, text)

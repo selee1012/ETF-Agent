@@ -39,6 +39,8 @@ def _default(task: str, messages: list[ChatMessage]) -> str:
             return "제공된 자료로는 답하기 어렵습니다."
         body = "\n".join(ln for ln in m.group(1).splitlines() if not ln.startswith("#"))
         return f"{_first_sentences(body)} [1]"
+    if task == "general_answer":
+        return f"(fake) 일반 대화 응답: {last[:40]}"
     if task in ("etf_summary", "disclosure_summary"):
         return ""  # 요약 문장 없이 DB 표만 사용
     return "샘플 응답입니다."

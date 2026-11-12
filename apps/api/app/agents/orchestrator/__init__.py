@@ -11,7 +11,7 @@ from app.logging import get_logger
 
 log = get_logger(__name__)
 
-_VALID = {i.value for i in Intent}
+_VALID = {i.value for i in Intent if i is not Intent.GENERAL}  # general은 분류 대상이 아니다
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 

@@ -149,6 +149,10 @@ class Settings(BaseSettings):
     rag_min_score: float = Field(default=0.25, ge=0, le=1)
     entity_fuzzy_threshold: int = Field(default=80, ge=0, le=100)
     inquiry_channel: str = "고객센터(샘플) 1588-0000 · 홈페이지 1:1 문의"
+    # 일반 대화 모드(개인용 로컬 전용): ETF 범위 밖 질문·근거 없는 질문에도 LLM이 자유롭게 답한다.
+    # 고위험·ETF 추천은 계속 템플릿, 금칙 표현·개인정보 룰 가드는 그대로 적용. APP_ENV=local에서만 허용.
+    general_chat_enabled: bool = False
+    general_chat_temperature: float = Field(default=0.7, ge=0, le=2)
 
     # --- 외부 데이터 API ---
     data_go_kr_api_key: SecretStr | None = None
@@ -180,6 +184,8 @@ class Settings(BaseSettings):
             self.embedding_provider = self.llm_provider
         if self.embedding_base_url is None:
             self.embedding_base_url = self.llm_base_url
+        if self.general_chat_enabled and self.app_env is not AppEnv.LOCAL:
+            raise ValueError("GENERAL_CHAT_ENABLED는 APP_ENV=local에서만 켤 수 있습니다")
         if self.local_jwt_secret is None:
             if self.auth_provider is AuthProvider.LOCAL and self.app_env is not AppEnv.LOCAL:
                 raise ValueError("APP_ENV가 local이 아니면 LOCAL_JWT_SECRET이 필요합니다")

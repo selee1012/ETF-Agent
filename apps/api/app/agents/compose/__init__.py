@@ -4,9 +4,11 @@ LLM으로 다시 쓰지 않는다(DB 수치·출처가 바뀌지 않도록 결�
 """
 
 from app.agents.prompts import load_yaml
-from app.agents.state import AGENT_INTENTS, AgentResult, Source
+from app.agents.state import AGENT_INTENTS, AgentResult, Intent, Source
 
-SECTION_TITLE = {"etf_info": "ETF 정보", "faq": "설명", "disclosure": "공시"}
+SECTION_TITLE = {"etf_info": "ETF 정보", "faq": "설명", "disclosure": "공시", "general": "답변"}
+# 결합 순서: 전문 에이전트 → 일반 대화(로컬 전용)
+ORDER = (*(i.value for i in AGENT_INTENTS), Intent.GENERAL.value)
 DISCLAIMER_HEADER = "---\n**고지**"
 
 
@@ -28,7 +30,7 @@ def compose(
     intents: list[str], results: dict[str, AgentResult]
 ) -> tuple[str, list[Source], list[str], bool]:
     """(본문, 출처, 근거 텍스트, 전부 실패 여부)."""
-    ordered = [results[i] for i in (x.value for x in AGENT_INTENTS) if i in results]
+    ordered = [results[i] for i in ORDER if i in results and i in intents]
     ok = [r for r in ordered if r.ok]
     if not ok:
         return "", [], [], True

@@ -4,9 +4,10 @@ import re
 from dataclasses import replace
 
 from app import cache
+from app.agents import general
 from app.agents.common import LEVEL_LABEL, history_text, retry_note
 from app.agents.prompts import load_text
-from app.agents.state import AgentDeps, AgentResult, GraphState, Level, Source
+from app.agents.state import AgentDeps, AgentResult, GraphState, Intent, Level, Source
 from app.llm.base import ChatMessage
 from app.rag.retriever import RetrievedChunk, hybrid_search
 
@@ -24,6 +25,22 @@ def _evidence_block(chunks: list[RetrievedChunk]) -> str:
 def _cited(text: str, n: int) -> list[int]:
     nums = sorted({int(m) for m in _CITE.findall(text) if 1 <= int(m) <= n})
     return nums or list(range(1, n + 1))
+
+
+async def _no_evidence(
+    state: GraphState, deps: AgentDeps, *, generated: bool = False
+) -> AgentResult:
+    """근거 없음. 일반 대화 모드(로컬 전용)이고 FAQ 단독 질문이면 모델 일반 지식으로 답한다."""
+    if deps.settings.general_chat_enabled and state.get("intents") == [Intent.FAQ]:
+        text = await general.answer(state, deps, intent=NAME)
+        if text:
+            return AgentResult(
+                agent=NAME,
+                content=f"{text}\n\n{general.UNGROUNDED_NOTE}",
+                generated=True,
+                grounded=False,
+            )
+    return AgentResult(agent=NAME, content=NO_ANSWER, generated=generated)
 
 
 async def run(state: GraphState, deps: AgentDeps) -> AgentResult:
@@ -45,7 +62,7 @@ async def run(state: GraphState, deps: AgentDeps) -> AgentResult:
         )
     chunks = [c for c in chunks if c.score >= s.rag_min_score]
     if not chunks:
-        return AgentResult(agent=NAME, content=NO_ANSWER)
+        return await _no_evidence(state, deps)
 
     hist = history_text(state)
     user = (
@@ -63,7 +80,7 @@ async def run(state: GraphState, deps: AgentDeps) -> AgentResult:
     )
     answer = resp.text.strip() or NO_ANSWER
     if NO_ANSWER in answer and len(answer) < len(NO_ANSWER) + 20:
-        return AgentResult(agent=NAME, content=NO_ANSWER, generated=True)
+        return await _no_evidence(state, deps, generated=True)
     used = [chunks[i - 1] for i in _cited(answer, len(chunks))]
     sources = [
         Source(

@@ -3,11 +3,14 @@
 질문 → preprocess → orchestrate ─┬→ etf_info ─┐
                                 ├→ faq      ─┼→ compose → guard ─┬→ END (통과)
                                 ├→ disclosure┘                   ├→ retry → (해당 에이전트 재실행) …
-                                └→ template → END                └→ safe → END (재생성 후 실패)
+                                ├→ general  ┘ (일반 대화, 로컬 전용)  └→ safe → END (재생성 후 실패)
+                                └→ template → END
 
 - 복수 의도는 해당 에이전트 노드로 동시에 분기(LangGraph 병렬 superstep)해 compose에서 합친다. # P1-AG-02
 - 고위험·추천·범위 밖은 생성하지 않고 템플릿으로 답한다. # P1-AG-06 ③
 - 가드 실패 시 1회 재생성, 다시 실패하면 안전 답변 + 문의 채널. # P1-AG-06
+- GENERAL_CHAT_ENABLED(APP_ENV=local 전용)면 범위 밖 질문은 템플릿 대신 general 에이전트가 답한다.
+  ETF·투자와 무관한 추천·시점 질문('저녁 메뉴 추천해줘')도 general로 보낸다.
 """
 
 from functools import lru_cache
@@ -18,11 +21,11 @@ from langgraph.graph import END, START, StateGraph
 
 from app import cache
 from app.agents import compose as composer
-from app.agents import disclosure, etf_info, faq
+from app.agents import disclosure, etf_info, faq, general
 from app.agents.guard import run_guard
 from app.agents.guard.templates import high_risk_answer, safe_answer, template_answer
 from app.agents.orchestrator import classify
-from app.agents.orchestrator.rules import is_followup_info
+from app.agents.orchestrator.rules import is_domain, is_followup_info
 from app.agents.preprocess import load_catalog, normalize, recognize_entities
 from app.agents.state import (
     AgentDeps,
@@ -39,7 +42,12 @@ from app.logging import get_logger
 log = get_logger(__name__)
 
 MAX_RETRIES = 1
-_AGENTS = {"etf_info": etf_info.run, "faq": faq.run, "disclosure": disclosure.run}
+_AGENTS = {
+    "etf_info": etf_info.run,
+    "faq": faq.run,
+    "disclosure": disclosure.run,
+    "general": general.run,
+}
 
 
 def _deps(config: RunnableConfig) -> AgentDeps:
@@ -80,6 +88,8 @@ async def orchestrate_node(state: GraphState, config: RunnableConfig) -> dict[st
         and is_followup_info(state["normalized"])
     ):
         intents = [Intent.ETF_INFO.value]
+    if deps.settings.general_chat_enabled:
+        intents = _general_override(intents, state["normalized"], bool(entities or context))
     update: dict[str, Any] = {"intents": intents, "intent_source": source}
     # 이번 질문에 ETF가 없으면 직전 턴의 ETF를 이어 쓴다(ETF 정보·공시 의도일 때만).
     if not entities and context and (Intent.ETF_INFO in intents or Intent.DISCLOSURE in intents):
@@ -88,6 +98,19 @@ async def orchestrate_node(state: GraphState, config: RunnableConfig) -> dict[st
             EtfEntity(t, catalog[t].name, "", 0.0, "context") for t in context if t in catalog
         ]
     return update
+
+
+def _general_override(intents: list[str], text: str, has_etf_context: bool) -> list[str]:
+    """일반 대화 모드: 범위 밖 → general. ETF·투자와 무관한 추천·고위험 패턴도 general."""
+    if intents == [Intent.OUT_OF_SCOPE]:
+        return [Intent.GENERAL.value]
+    if (
+        intents in ([Intent.RECOMMENDATION], [Intent.HIGH_RISK])
+        and not has_etf_context
+        and not is_domain(text)
+    ):
+        return [Intent.GENERAL.value]
+    return intents
 
 
 def _agent_node(name: str):
@@ -163,6 +186,7 @@ async def guard_node(state: GraphState, config: RunnableConfig) -> dict[str, Any
             required_disclaimers=composer.required_disclaimers(state["intents"]),
             evidence=state.get("evidence") or [],
             generated=any(r.generated for r in active),
+            grounded=all(r.grounded for r in active),
         )
         res_reasons, passed = g.reasons, g.passed
     if passed:

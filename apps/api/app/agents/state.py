@@ -19,6 +19,8 @@ class Intent(StrEnum):
     HIGH_RISK = "high_risk"
     RECOMMENDATION = "recommendation"
     OUT_OF_SCOPE = "out_of_scope"
+    # 일반 대화(GENERAL_CHAT_ENABLED, 로컬 전용). 분류기가 내지 않고 오케스트레이터가 바꿔 넣는다.
+    GENERAL = "general"
 
 
 # 전문 에이전트가 처리하는 의도(나머지는 템플릿)
@@ -75,6 +77,9 @@ class AgentResult:
     evidence: list[str] = field(default_factory=list)  # 가드 근거 대조용 텍스트
     retrieved_ids: list[str] = field(default_factory=list)
     generated: bool = False  # LLM 생성 문장이 포함됐는지(검증 모델 대상)
+    grounded: bool = (
+        True  # False: 근거 없이 모델 일반 지식으로 답함(일반 대화) → 수치·근거 검증 생략
+    )
     ok: bool = True
     error: str | None = None
     cache_key: str | None = None  # 가드 통과 시 캐시에 저장할 키(FAQ)

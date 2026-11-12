@@ -20,3 +20,4 @@ required:
   high_risk: []        # 템플릿 자체에 포함
   recommendation: []   # 템플릿 자체에 포함
   out_of_scope: []
+  general: []          # 일반 대화(로컬 전용): 근거 없음 표시는 본문에 붙는다
