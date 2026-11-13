@@ -28,6 +28,8 @@ export function ChatView({ onAuthError }: { onAuthError: () => void }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  // 화면에 보이는 대화가 바뀔 때마다 올린다. 늦게 도착한 '대화 열기' 응답이 현재 화면을 덮지 않게 한다.
+  const viewSeq = useRef(0)
 
   const refreshConversations = useCallback(() => {
     listConversations()
@@ -49,7 +51,19 @@ export function ChatView({ onAuthError }: { onAuthError: () => void }) {
   async function openConversation(id: string) {
     setSidebarOpen(false)
     if (busy) return
-    const conv = await getConversation(id)
+    const seq = ++viewSeq.current
+    let conv
+    try {
+      conv = await getConversation(id)
+    } catch (e) {
+      if ((e as { status?: number })?.status === 401) return onAuthError()
+      if (seq === viewSeq.current) {
+        window.alert(e instanceof Error ? e.message : '대화를 불러오지 못했습니다')
+        refreshConversations()
+      }
+      return
+    }
+    if (seq !== viewSeq.current) return // 그 사이 다른 대화를 열었거나 질문을 보냈다
     setConversationId(id)
     setMessages(
       conv.messages.map((m) => ({
@@ -64,8 +78,9 @@ export function ChatView({ onAuthError }: { onAuthError: () => void }) {
 
   function newConversation() {
     // 답변을 받는 중이면 그 스트림을 끊는다. 끊지 않으면 뒤늦게 온 done이 이전 대화로 되돌린다.
-    // 서버는 끊겨도 답변을 저장하므로 대화 목록에서 다시 열 수 있다.
+    // 서버는 끊긴 요청의 답변 작성을 멈추고 '중단됨'으로 기록한다.
     abortRef.current?.abort()
+    viewSeq.current++
     setSidebarOpen(false)
     setConversationId(null)
     setMessages([])
@@ -101,6 +116,7 @@ export function ChatView({ onAuthError }: { onAuthError: () => void }) {
   async function ask(text: string) {
     const question = text.trim()
     if (!question || busy) return
+    viewSeq.current++ // 불러오던 대화가 있어도 이 질문의 화면을 덮지 않는다
     setInput('')
     setBusy(true)
     const aKey = nextKey()
