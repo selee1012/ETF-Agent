@@ -10,7 +10,7 @@
 | 생성 모델(관리형) | Bedrock | **Azure OpenAI**(Microsoft Foundry) | `LLM_PROVIDER=openai_compat`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`=배포 이름 | 동작(로컬에서 실측) |
 | 임베딩 | Bedrock Titan v2 | Azure OpenAI `text-embedding-3-small`(`dimensions=1024`) | `EMBEDDING_MODEL`=배포 이름, `EMBEDDING_REQUEST_DIMENSIONS=true` | 동작 |
 | 자체 호스팅 sLLM | EC2/ECS GPU + vLLM | Azure GPU VM(NC 계열) 또는 AKS GPU 노드 + vLLM | `LLM_BASE_URL`=VNet 내부 주소 | 동작(어댑터 공통) |
-| LLM 폴백 | Bedrock | Azure OpenAI | — | **미구현**(`FALLBACK_PROVIDER`는 `none`\|`bedrock`만 있다) |
+| LLM 폴백 | Bedrock | Azure OpenAI | `FALLBACK_PROVIDER=openai_compat`, `FALLBACK_BASE_URL`, `FALLBACK_API_KEY`, `FALLBACK_MODEL` | 동작(vLLM을 1순위로 쓸 때만 의미 있음) |
 | DB | RDS/Aurora PostgreSQL | Azure Database for PostgreSQL **Flexible Server** | `DATABASE_URL` | 코드 변경 없음 |
 | 인증 | Cognito | **자체 발급 JWT 유지**(기본) 또는 Microsoft Entra External ID | `AUTH_PROVIDER=local` 또는 `entra` | local은 로그인 수단 보강 필요, entra는 스텁 |
 | 파일 저장 | S3 | **Azure Blob Storage** | `STORAGE_PROVIDER=azure_blob` | 스텁(`app/storage/azure_blob.py`) |
@@ -68,6 +68,20 @@ vllm serve K-intelligence/Midm-2.0-Mini-Instruct \
 - 생성과 임베딩은 엔드포인트를 따로 둘 수 있지만(`EMBEDDING_BASE_URL`) **API 키는 하나(`LLM_API_KEY`)를 같이 쓴다.**
   vLLM 생성 + Azure OpenAI 임베딩을 섞으려면 vLLM을 `--api-key`로 같은 값에 맞추거나, 임베딩도 vLLM에서 띄운다.
 - 모델 라이선스를 확인한다(Mi:dm 2.0 MIT, EXAONE은 비상업 라이선스라 상용 불가).
+
+### C. 자체 호스팅 + Azure OpenAI 폴백
+
+B 설정에 다음을 더한다. vLLM 호출이 실패하면 `FALLBACK_ALLOWED_INTENTS`에 든 의도만 Azure OpenAI로 다시 호출한다.
+
+```dotenv
+FALLBACK_PROVIDER=openai_compat
+FALLBACK_BASE_URL=https://<리소스 이름>.openai.azure.com/openai/v1/
+FALLBACK_MODEL=<폴백 모델 배포 이름>
+FALLBACK_ALLOWED_INTENTS=faq
+```
+
+- `FALLBACK_API_KEY`는 Key Vault 비밀 참조로 주입한다. URL이나 모델이 비어 있으면 기동하지 않는다.
+- 폴백은 gpt-5 계열 형식(`max_completion_tokens`, 온도 생략)으로 부른다. 생각 분량은 `FALLBACK_REASONING_EFFORT`(기본 `minimal`).
 
 ## DB — Azure Database for PostgreSQL Flexible Server
 

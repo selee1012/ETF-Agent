@@ -1,4 +1,4 @@
-"""OpenAI 호환 API 어댑터(OpenAI API, AWS 자체 호스팅 vLLM 등). openai SDK는 이 파일에서만 쓴다."""
+"""OpenAI 호환 API 어댑터(OpenAI API, Azure OpenAI, 자체 호스팅 vLLM 등). openai SDK는 이 파일에서만 쓴다."""
 
 import math
 import re

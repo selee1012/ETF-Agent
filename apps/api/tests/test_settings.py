@@ -38,7 +38,6 @@ def test_loads_required_value_and_defaults(clean_env: pytest.MonkeyPatch) -> Non
     assert s.embedding_provider is s.llm_provider
     assert s.tracer is Tracer.PG
     assert s.embedding_dim == 1024
-    assert s.bedrock_region == "ap-northeast-2"
     assert s.fallback_allowed_intents == ["faq"]
 
 
@@ -57,8 +56,7 @@ def test_rejects_sync_driver_url(clean_env: pytest.MonkeyPatch) -> None:
     ("env", "value", "field", "expected"),
     [
         ("LLM_PROVIDER", "fake", "llm_provider", LLMProvider.FAKE),
-        ("LLM_PROVIDER", "bedrock", "llm_provider", LLMProvider.BEDROCK),
-        ("FALLBACK_PROVIDER", "bedrock", "fallback_provider", FallbackProvider.BEDROCK),
+        ("FALLBACK_PROVIDER", "openai_compat", "fallback_provider", FallbackProvider.OPENAI_COMPAT),
         ("ADMIN_AUTH", "cf_access", "admin_auth", AdminAuth.CF_ACCESS),
         ("AUTH_PROVIDER", "entra", "auth_provider", AuthProvider.ENTRA),
         ("STORAGE_PROVIDER", "azure_blob", "storage_provider", StorageProvider.AZURE_BLOB),

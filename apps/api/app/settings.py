@@ -31,13 +31,14 @@ class LogLevel(StrEnum):
 
 class LLMProvider(StrEnum):
     OPENAI_COMPAT = "openai_compat"  # OpenAI API·Azure OpenAI·자체 호스팅 vLLM 등 OpenAI 호환 서버
-    BEDROCK = "bedrock"  # AWS Bedrock(선택지로 남김, 기본 경로는 Azure). LLM_MODEL·EMBEDDING_MODEL에 모델 ID
     FAKE = "fake"  # 테스트·키 없는 환경
 
 
 class FallbackProvider(StrEnum):
     NONE = "none"
-    BEDROCK = "bedrock"  # 1순위(OpenAI·vLLM) 실패 시 Bedrock(BEDROCK_MODEL_ID)
+    OPENAI_COMPAT = (
+        "openai_compat"  # 1순위(vLLM 등) 실패 시 다른 OpenAI 호환 엔드포인트(Azure OpenAI)
+    )
 
 
 class AuthProvider(StrEnum):
@@ -130,13 +131,15 @@ class Settings(BaseSettings):
     # true면 임베딩 요청에 dimensions=EMBEDDING_DIM을 보낸다(OpenAI text-embedding-3 축소용)
     embedding_request_dimensions: bool = True
 
-    # --- AWS Bedrock (LLM_PROVIDER=bedrock 또는 FALLBACK_PROVIDER=bedrock) ---
-    # 자격 증명은 boto3 기본 체인(IAM 역할·환경변수·~/.aws)을 쓴다. 키를 설정에 두지 않는다.
-    bedrock_region: str = "ap-northeast-2"
-    bedrock_profile: str | None = None  # 로컬에서 ~/.aws 프로필을 쓸 때만
-    # --- LLM 폴백 ---
+    # --- LLM 폴백 (예: 자체 호스팅 vLLM 장애 시 Azure OpenAI) ---
     fallback_provider: FallbackProvider = FallbackProvider.NONE
-    bedrock_model_id: str | None = None  # 폴백용 Bedrock 모델 ID
+    fallback_base_url: str | None = None  # 예: https://<리소스>.openai.azure.com/openai/v1/
+    fallback_api_key: SecretStr | None = None
+    fallback_model: str | None = None  # Azure OpenAI는 배포 이름
+    # 폴백은 gpt-5 계열 형식(max_completion_tokens·온도 생략)으로 부른다. off면 생각 분량을 보내지 않는다
+    fallback_reasoning_effort: Literal["off", "none", "minimal", "low", "medium", "high"] = (
+        "minimal"
+    )
     fallback_allowed_intents: CommaList = Field(default_factory=lambda: ["faq"])
 
     # --- 어댑터 선택 ---

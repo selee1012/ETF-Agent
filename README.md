@@ -162,21 +162,21 @@ LLM_API_KEY=<OpenAI API 키>
 | `SUPABASE_URL` / `SUPABASE_JWKS_URL` / `SUPABASE_JWT_SECRET` | - | [나중] Supabase Auth |
 | `ENTRA_TENANT_ID` / `ENTRA_CLIENT_ID` | - | [나중] Microsoft Entra External ID(외부 로그인 서비스를 쓸 때만) |
 | `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` | - | [나중] Cloudflare Access |
-| `LLM_PROVIDER` | `openai_compat` | `openai_compat`(OpenAI API·Azure OpenAI·vLLM 등) \| `bedrock` \| `fake` |
+| `LLM_PROVIDER` | `openai_compat` | `openai_compat`(OpenAI API·Azure OpenAI·vLLM 등) \| `fake` |
 | `LLM_BASE_URL` | `https://api.openai.com/v1` | OpenAI 호환 `/v1` |
 | `LLM_API_KEY` | - | OpenAI API 키(`.env`·`.env.local`에만), vLLM `--api-key` |
-| `LLM_MODEL` | `gpt-5.4-nano` | 생성 모델(bedrock이면 모델 ID·추론 프로필 ID) |
+| `LLM_MODEL` | `gpt-5.4-nano` | 생성 모델(Azure OpenAI는 배포 이름) |
 | `JUDGE_MODEL` | = `LLM_MODEL` | 검증 모델 |
 | `LLM_TIMEOUT_SECONDS` / `LLM_MAX_TOKENS` / `LLM_TEMPERATURE` | `60` / `1200` / `0.2` | 최대 토큰은 FAQ 상세 설명 기준 |
 | `OPENAI_MAX_TOKENS_PARAM` / `OPENAI_OMIT_TEMPERATURE` | `max_completion_tokens` / `true` | OpenAI gpt-5 계열 형식. vLLM 등은 `max_tokens` / `false` |
 | `OPENAI_REASONING_EFFORT` | `none` | 생각 분량 `off`\|`none`\|`minimal`\|`low`\|`medium`\|`high`. `none`이 가장 빠름(gpt-5.0은 `minimal`), `off`는 옵션 미전송 |
-| `EMBEDDING_PROVIDER` | = `LLM_PROVIDER` | `openai_compat` \| `bedrock` \| `fake` |
+| `EMBEDDING_PROVIDER` | = `LLM_PROVIDER` | `openai_compat` \| `fake` |
 | `EMBEDDING_BASE_URL` | = `LLM_BASE_URL` | |
-| `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `text-embedding-3-small` / `1024` | 차원은 `chunks.embedding` 컬럼과 일치. bedrock: `amazon.titan-embed-text-v2:0` |
+| `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `text-embedding-3-small` / `1024` | 차원은 `chunks.embedding` 컬럼과 일치 |
 | `EMBEDDING_REQUEST_DIMENSIONS` | `true` | 임베딩 요청에 `dimensions` 전송(OpenAI text-embedding-3) |
-| `BEDROCK_REGION` / `BEDROCK_PROFILE` | `ap-northeast-2` / - | Bedrock 리전, (로컬 시험용) `~/.aws` 프로필. 자격 증명은 boto3 기본 체인 |
-| `FALLBACK_PROVIDER` | `none` | `none` \| `bedrock` |
-| `BEDROCK_MODEL_ID` / `FALLBACK_ALLOWED_INTENTS` | - / `faq` | 폴백 모델 ID(bedrock이면 필수), 폴백 허용 의도 |
+| `FALLBACK_PROVIDER` | `none` | `none` \| `openai_compat`(1순위 실패 시 다른 OpenAI 호환 엔드포인트, 예: Azure OpenAI) |
+| `FALLBACK_BASE_URL` / `FALLBACK_API_KEY` / `FALLBACK_MODEL` | - | 폴백 엔드포인트·키·모델(`openai_compat`이면 URL·모델 필수) |
+| `FALLBACK_REASONING_EFFORT` / `FALLBACK_ALLOWED_INTENTS` | `minimal` / `faq` | 폴백 모델 생각 분량, 폴백 허용 의도 |
 | `STORAGE_PROVIDER` | `local` | `local` \| `supabase`(스텁) \| `azure_blob`(스텁) |
 | `STORAGE_LOCAL_DIR` | `var/storage` (compose: `/data/storage` 볼륨) | |
 | `TRACER` | `pg` | `pg` \| `langfuse`(스텁) |
@@ -203,7 +203,7 @@ LLM_API_KEY=<OpenAI API 키>
 | P1-AG-03 | ETF 정보 수집·도구 | `apps/api/app/agents/etf_info/`, `apps/api/app/tools/{etf_search,price_lookup,compare}.py` |
 | P1-AG-04 | 지식·FAQ 수집(하이브리드 검색, 후속 질문 검색 보강, 수준별 캐시) | `apps/api/app/agents/faq/`, `apps/api/app/rag/retriever.py`, `data/samples/docs/` |
 | P1-AG-05 | 공시 수집 | `apps/api/app/agents/disclosure/`, `apps/api/app/tools/disclosure_lookup.py` |
-| P1-AG-06 | 답변 합성(LLM 1회, 수준별 프롬프트)·컴플라이언스 가드·폴백 자리 | `apps/api/app/agents/compose/`, `prompts/system/answer_*.md`, `apps/api/app/agents/guard/`, `prompts/guard/`, `prompts/templates/`, `apps/api/app/llm/{router,bedrock}.py`, `apps/api/app/privacy/` |
+| P1-AG-06 | 답변 합성(LLM 1회, 수준별 프롬프트)·컴플라이언스 가드·폴백 자리 | `apps/api/app/agents/compose/`, `prompts/system/answer_*.md`, `apps/api/app/agents/guard/`, `prompts/guard/`, `prompts/templates/`, `apps/api/app/llm/router.py`, `apps/api/app/privacy/` |
 | P1-API-01 | dev-login, `/chat` SSE | `apps/api/app/routers/{auth,chat}.py`, `apps/api/app/services/chat.py`, `apps/api/app/auth/` |
 | P1-API-02 | 이력 | `apps/api/app/routers/history.py` |
 | P1-API-03 | 피드백 | `apps/api/app/routers/feedback.py` |
@@ -218,7 +218,7 @@ LLM_API_KEY=<OpenAI API 키>
 
 테스트: `apps/api/tests/` — 의도별 경로(`test_graph_routes.py`), SSE 순서·첫 status 즉시성(`test_chat_api.py`),
 금칙 표현·1회 재생성 후 안전 답변(`test_guard.py`), 트레이스 원문 미저장(`test_traces.py`), 오타·별칭 인식(`test_preprocess.py`),
-Bedrock 요청 형식·폴백·SDK import 경계(`test_bedrock.py`), 일반 대화 모드(`test_general_chat.py`).
+폴백 라우터·SDK import 경계(`test_llm_router.py`), 일반 대화 모드(`test_general_chat.py`).
 
 ## 확장 지점 (배포 시 바꿀 설정·어댑터)
 
@@ -230,7 +230,7 @@ Bedrock 요청 형식·폴백·SDK import 경계(`test_bedrock.py`), 일반 대�
 | 파일 저장 | 로컬 볼륨 | Azure Blob Storage(원본) + DB `documents.source_uri`(주소) | `STORAGE_PROVIDER` | `app/storage/azure_blob.py`(또는 `app/storage/supabase_storage.py`) |
 | LLM | OpenAI API(`gpt-5.4-nano`) | **Azure OpenAI** 또는 Azure 자체 호스팅 vLLM | `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` (`infra/azure/`) | 없음(같은 `openai_compat` 어댑터) |
 | 임베딩 | OpenAI `text-embedding-3-small`(1024차원) | Azure OpenAI `text-embedding-3-small` | `EMBEDDING_MODEL`(배포 이름) | 없음 |
-| 폴백 | 없음 | (필요 시) Azure OpenAI | — | `app/llm/router.py`(지금 폴백 공급자는 `bedrock`만 있다) |
+| 폴백 | 없음 | (vLLM을 쓸 때) Azure OpenAI | `FALLBACK_PROVIDER=openai_compat`, `FALLBACK_BASE_URL`, `FALLBACK_API_KEY`, `FALLBACK_MODEL` | 없음(구현됨) |
 | 트레이스 | Postgres `traces` | Langfuse | `TRACER=langfuse` | `app/observability/langfuse_tracer.py` |
 | 메트릭 | `/metrics` 노출 | Grafana Cloud 수집 | — | 없음(수집기 설정만) |
 | 캐시 | 프로세스 TTLCache | (필요 시) Redis | — | `app/cache/__init__.py`(함수 시그니처 유지) |
@@ -262,7 +262,6 @@ prompts/        system/ guard/(rules.yaml, disclaimers.yaml, judge.md) templates
 data/           samples/(시드·문서) eval-sets/(형식 예시 10줄씩)
 infra/local/    docker-compose.yml db/init.sql
 infra/azure/    고도화 버전 구성(AWS → Azure 대응표, Azure OpenAI, 자체 호스팅 vLLM, DB·인증·저장소)
-infra/aws/      (참고) 이전 AWS 계획 — Bedrock 어댑터 설정. 기본 경로는 infra/azure/
 infra/mvp/      (참고) 이전 EC2 + cloudflared 배포 초안 — 이번 범위에서는 쓰지 않는다
 scripts/        demo.py run-fake.sh run-local.sh _common.sh
 my-rag-project/ 2주차 실습 RAG 프로토타입(.env, requirements.txt, rag_module.py, app.py)
@@ -334,6 +333,7 @@ my-rag-project/ 2주차 실습 RAG 프로토타입(.env, requirements.txt, rag_m
 | 2026-11-12 | 분류기 프롬프트에 '살 수 있나요'(제도 질문)는 faq, 개인 판단·예측·계산만 high_risk라는 경계와 예시를 둔다 | 실제 모델이 "조금이라도 있으면 포함" 규칙을 과하게 적용해 제도 질문을 고위험으로 막았다 |
 | 2026-11-12 | 위험 요청(해킹·보안 공격, 불법 행위 방법, 프롬프트 인젝션)은 `blocked` 의도로 즉시 차단: 규칙에 걸리면 LLM을 부르지 않고 고정 문구, 규칙을 비켜 가면 분류기가 잡는다. 우선순위는 차단 > 고위험 > 추천 | 일반 대화 모드에서 모델이 "서면 허가를 받으면…" 식으로 답하다가 "허가받았다"는 말에 침투 가이드를 주려 했다. 사유로 설득되는 경로를 없앤다 |
 | 2026-11-12 | 직전 답변이 차단이면 범위 밖 후속 질문("허가 받았어")도 차단, ETF 질문으로 돌아오면 정상 답변 | 사유를 덧붙여 차단을 푸는 다단계 시도를 막되 정상 이용은 막지 않는다 |
-| 2026-11-13 | 고도화 버전 인프라는 전체 Azure로 간다(이전 AWS 계획 대체). LLM·임베딩은 Azure OpenAI, DB는 Azure Database for PostgreSQL, 대응표는 `infra/azure/README.md` | 인프라를 한 클라우드로 통일한다. Azure OpenAI는 `openai_compat` 어댑터로 이미 동작해 코드 변경이 없다. Bedrock 어댑터는 선택지로 남긴다 |
+| 2026-11-13 | 고도화 버전 인프라는 전체 Azure로 간다(이전 AWS 계획 대체). LLM·임베딩은 Azure OpenAI, DB는 Azure Database for PostgreSQL, 대응표는 `infra/azure/README.md` | 인프라를 한 클라우드로 통일한다. Azure OpenAI는 `openai_compat` 어댑터로 이미 동작해 코드 변경이 없다 |
 | 2026-11-13 | 인증은 배포 후에도 JWT 검증 구조를 유지한다. 기본은 자체 발급 JWT, Cognito 스텁은 Entra External ID 스텁(`AUTH_PROVIDER=entra`)으로 바꿈 | 외부 로그인 서비스도 결국 JWT를 발급하므로 API 쪽 구조는 같다. 자체 발급으로 가려면 `dev-login`을 대신할 실제 로그인 수단이 필요하다 |
 | 2026-11-13 | 원본 파일은 Azure Blob Storage에, DB에는 주소(`documents.source_uri`)만 둔다. S3 스텁은 `STORAGE_PROVIDER=azure_blob` 스텁으로 바꿈 | 답변에 쓰는 본문 조각·임베딩은 이미 DB `chunks`에 있어 원본을 DB에 중복 저장할 이유가 없다. 목록·재-ingest 갱신은 `source_uri` 기준이라 DB 기록은 필요하다 |
+| 2026-11-13 | Bedrock 어댑터·`boto3`·`infra/aws/` 제거. 폴백은 `FALLBACK_PROVIDER=openai_compat`(`FALLBACK_BASE_URL`·`FALLBACK_API_KEY`·`FALLBACK_MODEL`)로 Azure OpenAI에 넘긴다 | AWS를 쓰지 않으므로 유지할 이유가 없다. 폴백도 같은 `openai_compat` 어댑터를 써서 SDK 의존성이 하나 줄었다 |

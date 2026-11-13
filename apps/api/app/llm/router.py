@@ -1,8 +1,8 @@
 """1순위 LLM → 폴백 라우터. # P1-AG-06
 
 - FALLBACK_PROVIDER=none: 1순위가 실패하면 LLMUnavailableError → 그래프가 안전 답변을 낸다.
-- FALLBACK_PROVIDER=bedrock: FALLBACK_ALLOWED_INTENTS에 든 의도만 Bedrock(BEDROCK_MODEL_ID)으로
-  다시 호출한다(예: 자체 호스팅 sLLM 장애 시 FAQ만 Bedrock으로).
+- FALLBACK_PROVIDER=openai_compat: FALLBACK_ALLOWED_INTENTS에 든 의도만 다른 OpenAI 호환 엔드포인트
+  (FALLBACK_BASE_URL·FALLBACK_MODEL)로 다시 호출한다(예: 자체 호스팅 sLLM 장애 시 FAQ만 Azure OpenAI로).
 """
 
 from app.llm.base import ChatMessage, LLMClient, LLMError, LLMResponse, LLMUnavailableError
@@ -10,18 +10,25 @@ from app.settings import FallbackProvider, Settings
 
 
 def build_fallback(settings: Settings) -> LLMClient | None:
-    if settings.fallback_provider is FallbackProvider.BEDROCK:
-        if not settings.bedrock_model_id:
-            raise ValueError("FALLBACK_PROVIDER=bedrock이면 BEDROCK_MODEL_ID가 필요합니다")
-        from app.llm.bedrock import BedrockLLM
+    if settings.fallback_provider is FallbackProvider.OPENAI_COMPAT:
+        if not settings.fallback_base_url or not settings.fallback_model:
+            raise ValueError(
+                "FALLBACK_PROVIDER=openai_compat이면 FALLBACK_BASE_URL과 FALLBACK_MODEL이 필요합니다"
+            )
+        from app.llm.openai_compat import OpenAICompatLLM
 
-        return BedrockLLM(
-            region=settings.bedrock_region,
-            profile=settings.bedrock_profile,
-            model_id=settings.bedrock_model_id,
+        key = settings.fallback_api_key
+        effort = settings.fallback_reasoning_effort
+        return OpenAICompatLLM(
+            base_url=settings.fallback_base_url,
+            api_key=key.get_secret_value() if key else None,
+            model=settings.fallback_model,
             timeout=settings.llm_timeout_seconds,
             default_max_tokens=settings.llm_max_tokens,
             default_temperature=settings.llm_temperature,
+            max_tokens_param="max_completion_tokens",
+            omit_temperature=True,
+            reasoning_effort=None if effort == "off" else effort,
         )
     return None
 
