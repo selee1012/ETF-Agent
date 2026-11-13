@@ -17,6 +17,7 @@
 """
 
 import asyncio
+from dataclasses import replace
 from functools import lru_cache
 from typing import Any
 
@@ -42,6 +43,7 @@ from app.agents.state import (
     Verdict,
 )
 from app.llm.base import LLMError
+from app.llm.tracking import LLMUsage, TrackedLLM
 from app.logging import get_logger
 
 log = get_logger(__name__)
@@ -334,4 +336,11 @@ async def run_graph(
         "model": deps.llm.model,
         "fallback_used": False,
     }
-    return await build_graph().ainvoke(state, config={"configurable": {"deps": deps}})
+    # 에이전트는 응답 본문만 쓰므로, 폴백 사용 여부와 실제 답변 모델은 호출을 감싸서 모은다.
+    usage = LLMUsage()
+    deps = replace(deps, llm=TrackedLLM(deps.llm, usage))
+    final: GraphState = await build_graph().ainvoke(state, config={"configurable": {"deps": deps}})
+    final["fallback_used"] = usage.fallback_used
+    if usage.answer_model and final.get("model") != "template":
+        final["model"] = usage.answer_model
+    return final

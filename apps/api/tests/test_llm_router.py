@@ -5,11 +5,14 @@ from pathlib import Path
 
 import pytest
 
+from app.agents.graph import run_graph
+from app.agents.state import AgentDeps
 from app.llm import build_llm
 from app.llm.base import ChatMessage, LLMError, LLMUnavailableError
 from app.llm.fake import FakeLLM
 from app.llm.openai_compat import OpenAICompatLLM
 from app.llm.router import LLMRouter, build_fallback
+from app.observability.metrics import LLM_CALLS, render
 from app.settings import Settings
 
 APP_DIR = Path(__file__).resolve().parents[1] / "app"
@@ -79,3 +82,21 @@ def test_domain_code_does_not_import_provider_sdks(pkg):
                 names = [node.module]
             for n in names:
                 assert n.split(".")[0] not in banned, f"{path}: {n}"
+
+
+async def test_graph_records_fallback_and_answer_model(deps: AgentDeps) -> None:
+    primary = FakeLLM(model="primary", script={"answer": [LLMError("down")]})
+    deps.llm = LLMRouter(primary, FakeLLM(model="fallback"), ["faq"])
+    before = LLM_CALLS.labels("answer", "fallback")._value.get()
+    st = await run_graph(deps, request_id="t", query="괴리율이 뭐야?")
+    assert st["verdict"] == "pass"
+    assert st["fallback_used"] is True
+    assert st["model"] == "fallback"  # 트레이스에는 실제로 답변을 쓴 모델이 남는다
+    assert LLM_CALLS.labels("answer", "fallback")._value.get() == before + 1
+    assert b'etf_llm_calls_total{outcome="ok",task="judge"}' in render()
+
+
+async def test_graph_without_fallback_keeps_primary_model(deps: AgentDeps) -> None:
+    st = await run_graph(deps, request_id="t", query="괴리율이 뭐야?")
+    assert st["fallback_used"] is False
+    assert st["model"] == deps.llm.model
