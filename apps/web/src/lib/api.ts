@@ -108,7 +108,8 @@ export type ChatHandlers = {
 }
 
 /** POST /chat SSE를 fetch 스트림으로 읽는다(EventSource는 POST를 지원하지 않는다).
- * 설명 수준은 보내지 않는다: 서버가 사용자 프로필의 수준으로 답한다. */
+ * 설명 수준은 보내지 않는다: 서버가 사용자 프로필의 수준으로 답한다.
+ * 서버가 error 이벤트를 보내거나 done 없이 스트림이 끝나면 예외를 던진다(화면이 '답변 중'에 멈추지 않게). */
 export async function streamChat(
   body: { message: string; conversation_id?: string | null },
   handlers: ChatHandlers,
@@ -131,6 +132,7 @@ export async function streamChat(
   }
   const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader()
   let buffer = ''
+  let finished = false
   for (;;) {
     const { value, done } = await reader.read()
     if (done) break
@@ -139,24 +141,28 @@ export async function streamChat(
     while ((idx = buffer.indexOf('\n\n')) >= 0) {
       const block = buffer.slice(0, idx)
       buffer = buffer.slice(idx + 2)
-      dispatch(block, handlers)
+      if (dispatch(block, handlers)) finished = true
     }
   }
+  if (!finished) throw new ApiError(0, '답변이 중간에 끊겼습니다. 다시 시도해 주세요.')
 }
 
-function dispatch(block: string, h: ChatHandlers) {
+/** 이벤트 하나를 처리한다. done이면 true. */
+function dispatch(block: string, h: ChatHandlers): boolean {
   let event = 'message'
   const data: string[] = []
   for (const line of block.split('\n')) {
     if (line.startsWith('event: ')) event = line.slice(7)
     else if (line.startsWith('data: ')) data.push(line.slice(6))
   }
-  if (!data.length) return
+  if (!data.length) return false
   const payload = JSON.parse(data.join('\n'))
+  if (event === 'error') throw new ApiError(500, payload.message ?? '요청을 처리하지 못했습니다')
   if (event === 'status') h.onStatus(payload.message, payload.stage)
   else if (event === 'token') h.onToken(payload.text)
   else if (event === 'sources') h.onSources(payload.sources)
   else if (event === 'done') h.onDone(payload)
+  return event === 'done'
 }
 
 // ---------- 이력·피드백 ----------

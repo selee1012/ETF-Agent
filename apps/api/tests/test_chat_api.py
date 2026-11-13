@@ -12,7 +12,8 @@ from app.auth import Principal
 from app.db import get_sessionmaker
 from app.llm.base import ChatMessage, LLMResponse
 from app.llm.fake import FakeLLM
-from app.repositories.models import Feedback, Message
+from app.repositories.models import Conversation, Feedback, Message, Trace
+from app.services import chat as chat_service
 from app.services.chat import ChatRequest, _public_reasons, stream_chat
 from tests.sse import answer_text, parse_sse
 
@@ -156,3 +157,35 @@ async def test_done_event_has_no_rejected_figures(
     reasons = events[-1][1]["guard"]["reasons"]
     assert "ungrounded_number" in reasons
     assert not any("9.99" in r for r in reasons)
+
+
+async def test_prepare_failure_sends_error_event(app: FastAPI) -> None:
+    # 토큰은 유효하지만 사용자 행이 없는 경우(DB 초기화 등): 대화 생성이 FK 오류로 실패한다
+    ghost = Principal(uuid.uuid4(), "ghost@local.test", "user")
+    gen = stream_chat(app.state.container, ghost, ChatRequest(message="괴리율이 뭐야?"))
+    events = parse_sse("".join([chunk async for chunk in gen]))
+    assert [e for e, _ in events] == ["status", "error"]
+    assert events[-1][1]["message"] and events[-1][1]["request_id"]
+
+
+async def test_disconnect_still_saves_answer_and_trace(app: FastAPI, user_headers: dict) -> None:
+    c = app.state.container
+    c.llm = SlowLLM()
+    me = await c.auth.authenticate(user_headers["Authorization"].split()[1])
+    gen = stream_chat(c, Principal(me.user_id, me.email, me.role), ChatRequest(message="분배금?"))
+    await anext(gen)
+    await anext(gen)  # 그래프가 도는 중
+    await gen.aclose()  # 클라이언트가 끊었다
+    await asyncio.gather(*chat_service._running)
+    async with get_sessionmaker()() as s:
+        rows = (
+            await s.scalars(
+                select(Message)
+                .join(Conversation, Message.conversation_id == Conversation.id)
+                .where(Conversation.user_id == me.user_id)
+                .order_by(Message.created_at)
+            )
+        ).all()
+    assert [m.role for m in rows] == ["user", "assistant"]  # 답 없는 질문만 남지 않는다
+    async with get_sessionmaker()() as s:
+        assert await s.scalar(select(Trace).where(Trace.request_id == rows[0].request_id))

@@ -1,7 +1,9 @@
 """채팅 SSE 서비스. # P1-API-01
 
 이벤트 순서: status(요청 즉시) → status… → token… → sources → done
-- 답변 저장·트레이스는 토큰 전송 전에 끝낸다(클라이언트가 중간에 끊어도 기록이 남는다).
+- 준비 단계(대화·질문 저장)나 답변 작업이 실패하면 error 이벤트로 끝낸다(done 없음).
+- 답변 작성·저장·트레이스는 응답 스트림과 분리된 작업으로 돌린다. 클라이언트가 중간에 끊어도
+  끝까지 돌아 기록이 남고, 이력에 답 없는 질문만 남지 않는다. 토큰 전송은 그 뒤에 한다.
 - 토큰은 가드를 통과한 최종 답변을 잘게 나눠 보낸다(검증 전 문장이 화면에 노출되지 않도록).
 - 질의 원문은 메모리에서만 쓰고, DB에는 mask_pii() 값만, 트레이스·로그에는 남기지 않는다.
 """
@@ -30,6 +32,9 @@ from app.repositories import conversations as conv_repo
 log = get_logger(__name__)
 
 _TOKEN_RE = re.compile(r"\S+\s*|\s+")
+ERROR_MESSAGE = "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."
+# 연결이 끊겨도 끝까지 도는 답변 작업. 이벤트 루프는 약한 참조만 가지므로 여기서 붙잡아 둔다.
+_running: set[asyncio.Task[Any]] = set()
 
 
 class ChatRequest(BaseModel):
@@ -77,17 +82,25 @@ async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> A
     async def emit(stage: str, message: str) -> None:
         await queue.put(("status", {"stage": stage, "message": message}))
 
-    async with c.maker() as session:
-        conv = await conv_repo.get_or_create_conversation(
-            session, principal.user_id, req.conversation_id, req.message
-        )
-        history_rows = await conv_repo.recent_messages(session, conv.id, c.settings.history_turns)
-        level = req.level or await _profile_level(session, principal)
-        await conv_repo.add_message(
-            session, conversation_id=conv.id, role="user", content=req.message,
-            request_id=request_id, meta={"level": level.value},
-        )  # fmt: skip
-        await session.commit()
+    try:
+        async with c.maker() as session:
+            conv = await conv_repo.get_or_create_conversation(
+                session, principal.user_id, req.conversation_id, req.message
+            )
+            history_rows = await conv_repo.recent_messages(
+                session, conv.id, c.settings.history_turns
+            )
+            level = req.level or await _profile_level(session, principal)
+            await conv_repo.add_message(
+                session, conversation_id=conv.id, role="user", content=req.message,
+                request_id=request_id, meta={"level": level.value},
+            )  # fmt: skip
+            await session.commit()
+    except Exception:
+        # 응답은 이미 200으로 시작했다. 조용히 끊지 않고 실패를 알린다(질의 원문은 남기지 않는다).
+        log.exception("chat_prepare_failed", request_id=request_id)
+        yield sse("error", {"request_id": request_id, "message": ERROR_MESSAGE})
+        return
     history = [{"role": m.role, "content": m.content, "intent": m.intent} for m in history_rows]
     context_tickers: list[str] = []
     for m in reversed(history_rows):
@@ -97,34 +110,75 @@ async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> A
 
     deps = AgentDeps(settings=c.settings, llm=c.llm, embedder=c.embedder, maker=c.maker, emit=emit)
     task = asyncio.create_task(
-        run_graph(
+        _answer(
+            c,
+            principal,
             deps,
             request_id=request_id,
+            conversation_id=conv.id,
             query=req.message,
+            level=level,
+            history=history,
+            context_tickers=context_tickers,
+            started=started,
+        )
+    )
+    # 클라이언트가 끊겨 이 제너레이터가 닫혀도 작업은 취소하지 않는다(답변·트레이스 저장까지 간다).
+    _running.add(task)
+    task.add_done_callback(_running.discard)
+    while not task.done() or not queue.empty():
+        getter = asyncio.ensure_future(queue.get())
+        try:
+            done, _ = await asyncio.wait({task, getter}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            if not getter.done():
+                getter.cancel()
+        if getter in done:
+            event, data = getter.result()
+            yield sse(event, data)
+    try:
+        result = task.result()
+    except Exception:
+        log.exception("chat_answer_failed", request_id=request_id)
+        yield sse("error", {"request_id": request_id, "message": ERROR_MESSAGE})
+        return
+
+    delay = c.settings.stream_token_delay_ms / 1000
+    for piece in split_tokens(result["answer"]):
+        yield sse("token", {"text": piece})
+        await asyncio.sleep(delay)
+    yield sse("sources", {"sources": result["sources"]})
+    yield sse("done", result["done"])
+
+
+async def _answer(
+    c: Container,
+    principal: Principal,
+    deps: AgentDeps,
+    *,
+    request_id: str,
+    conversation_id: uuid.UUID,
+    query: str,
+    level: Level,
+    history: list[dict[str, Any]],
+    context_tickers: list[str],
+    started: float,
+) -> dict[str, Any]:
+    """그래프 실행 → 답변 저장 → 트레이스. 실패해도 안전 답변을 저장하고 결과를 돌려준다."""
+    state: GraphState | None
+    try:
+        state = await run_graph(
+            deps,
+            request_id=request_id,
+            query=query,
             level=level.value,
             history=history,
             context_tickers=context_tickers,
         )
-    )
-    state: GraphState | None = None
-    try:
-        while not task.done() or not queue.empty():
-            getter = asyncio.ensure_future(queue.get())
-            done, _ = await asyncio.wait({task, getter}, return_when=asyncio.FIRST_COMPLETED)
-            if getter in done:
-                event, data = getter.result()
-                yield sse(event, data)
-            else:
-                getter.cancel()
-        try:
-            state = task.result()
-        except Exception:
-            # 질의 원문 없이 예외 종류만 남긴다
-            log.exception("chat_graph_failed", request_id=request_id)
-            state = None
-    finally:
-        if not task.done():
-            task.cancel()
+    except Exception:
+        # 질의 원문 없이 예외 종류만 남긴다
+        log.exception("chat_graph_failed", request_id=request_id)
+        state = None
 
     if state is None:
         answer, verdict, intents, sources = safe_answer(c.settings.inquiry_channel), "error", [], []
@@ -153,7 +207,7 @@ async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> A
         async with c.maker() as session:
             msg = await conv_repo.add_message(
                 session,
-                conversation_id=conv.id,
+                conversation_id=conversation_id,
                 role="assistant",
                 content=answer,
                 request_id=request_id,
@@ -162,7 +216,7 @@ async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> A
                 sources=sources,
                 meta={"tickers": entities, "level": level.value},
             )
-            await conv_repo.touch_conversation(session, conv.id)
+            await conv_repo.touch_conversation(session, conversation_id)
             await session.commit()
             message_id = str(msg.id)
     except Exception:
@@ -193,20 +247,15 @@ async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> A
         verdict=verdict,
         latency_ms=latency_ms,
     )
-    delay = c.settings.stream_token_delay_ms / 1000
-    for piece in split_tokens(answer):
-        yield sse("token", {"text": piece})
-        await asyncio.sleep(delay)
-    yield sse("sources", {"sources": sources})
-
-    yield sse(
-        "done",
-        {
+    return {
+        "answer": answer,
+        "sources": sources,
+        "done": {
             "request_id": request_id,
-            "conversation_id": str(conv.id),
+            "conversation_id": str(conversation_id),
             "message_id": message_id,
             "intents": intents,
             "guard": {"verdict": verdict, "reasons": _public_reasons(reasons)},
             "latency_ms": latency_ms,
         },
-    )
+    }
