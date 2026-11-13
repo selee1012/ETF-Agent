@@ -15,7 +15,6 @@ ANSWER_TASKS = frozenset({"answer", "general_answer"})
 
 @dataclass(slots=True)
 class LLMUsage:
-    calls: int = 0
     fallback_used: bool = False
     answer_model: str | None = None
 
@@ -37,7 +36,6 @@ class TrackedLLM(LLMClient):
         max_tokens: int | None = None,
         json_mode: bool = False,
     ) -> LLMResponse:
-        self.usage.calls += 1
         try:
             resp = await self.inner.complete(
                 messages,
