@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from app.agents.graph import run_graph
-from app.agents.guard.judge import judge
+from app.agents.guard.judge import UNVERIFIED, judge
 from app.agents.guard.rules import find_banned
 from app.agents.preprocess import load_catalog, normalize, recognize_entities
 from app.agents.state import AgentDeps
@@ -116,7 +116,13 @@ async def eval_aliases(deps: AgentDeps, rows: list[dict]) -> tuple[dict, list[di
 async def eval_violations(
     deps: AgentDeps, rows: list[dict], *, with_judge: bool
 ) -> tuple[dict, list[dict]]:
-    tp = fn = fp = tn = 0
+    """위반 문장 탐지. 검증 모델은 '투자 권유' 판정만 쓴다.
+
+    평가셋에는 문장만 있고 근거가 없어 근거 일치(grounded)는 판정할 수 없다. 근거 없이 물으면
+    정상 문장도 '근거 없음'이 되어 오탐률이 부풀려진다. 판정을 받지 못한 행(호출·해석 실패)은
+    차단으로 세지 않고 judge_unverified로 따로 센다.
+    """
+    tp = fn = fp = tn = unverified = 0
     fails = []
     for r in rows:
         reasons = find_banned(r["text"]) + [f"pii:{k}" for k in find_pii(r["text"])]
@@ -124,7 +130,9 @@ async def eval_violations(
             jr, _ = await judge(
                 deps.llm, model=deps.settings.judge_model_name, answer=r["text"], evidence=[]
             )
-            reasons += [x for x in jr if not x.startswith("note:")]
+            if UNVERIFIED.intersection(jr):
+                unverified += 1
+            reasons += [x for x in jr if x == "judge:solicitation"]
         blocked = bool(reasons)
         if r["should_block"]:
             tp, fn = (tp + 1, fn) if blocked else (tp, fn + 1)
@@ -136,6 +144,7 @@ async def eval_violations(
         "violation_recall": round(tp / (tp + fn), 4) if tp + fn else 1.0,
         "false_positive_rate": round(fp / (fp + tn), 4) if fp + tn else 0.0,
         "with_judge": with_judge,
+        "judge_unverified": unverified,
     }, fails
 
 
