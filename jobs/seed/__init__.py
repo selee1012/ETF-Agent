@@ -4,6 +4,7 @@
 """
 
 import csv
+import hashlib
 import json
 from datetime import date
 from decimal import Decimal
@@ -48,20 +49,31 @@ def load_prices(samples_dir: Path) -> list[dict[str, Any]]:
         ]
 
 
+def disclosure_external_id(row: dict[str, Any]) -> str:
+    """재적재 때 같은 행을 가리키는 식별자. url 끝 조각을 쓰고, url이 없으면 내용으로 만든다.
+
+    external_id가 NULL이면 UNIQUE 충돌이 나지 않아 시드를 돌릴 때마다 같은 공시가 또 들어간다.
+    """
+    tail = (row.get("url") or "").rstrip("/").rsplit("/", 1)[-1]
+    if tail:
+        return tail[:64]
+    key = "|".join(
+        str(row.get(k) or "") for k in ("ticker", "constituent_name", "title", "disclosed_at")
+    )
+    return "sample-" + hashlib.sha256(key.encode()).hexdigest()[:24]
+
+
 def load_disclosures(samples_dir: Path) -> list[dict[str, Any]]:
     rows = json.loads((samples_dir / "disclosures.json").read_text(encoding="utf-8"))
-    out = []
-    for row in rows:
-        url = row.get("url") or ""
-        out.append(
-            {
-                **row,
-                "disclosed_at": date.fromisoformat(row["disclosed_at"]),
-                "source": "sample",
-                "external_id": url.rsplit("/", 1)[-1] or None,
-            }
-        )
-    return out
+    return [
+        {
+            **row,
+            "external_id": disclosure_external_id(row),
+            "disclosed_at": date.fromisoformat(row["disclosed_at"]),
+            "source": "sample",
+        }
+        for row in rows
+    ]
 
 
 async def seed(session: AsyncSession, samples_dir: Path = SAMPLES_DIR) -> dict[str, int]:
