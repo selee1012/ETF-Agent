@@ -51,6 +51,7 @@ make test                        # API 테스트 (실행 중인 DB 필요)
 make lint                        # Ruff, ESLint, Prettier, TypeScript 검사
 make demo PROVIDER=fake          # 예제 질문 실행
 make eval PROVIDER=fake          # 평가 리포트
+make restart                     # API 재시작 (데이터 갱신 후 캐시 비우기)
 make logs                        # API 로그
 make down                        # 컨테이너 종료, 볼륨 유지
 ```
@@ -58,6 +59,8 @@ make down                        # 컨테이너 종료, 볼륨 유지
 테스트는 `TEST_DATABASE_URL` 또는 `POSTGRES_*`로 지정한 서버에 별도의 `_test` DB를 만들며, **같은 이름의 기존 테스트 DB를 삭제하고 다시 생성합니다**. 실행 전에 대상 서버를 확인하세요.
 
 직접 스택을 관리할 때는 `make up`, `make migrate`, `make seed`, `make ingest`, `make collect`를 사용합니다. `make ingest ARGS="경로 --force"`는 문서를 강제로 재적재합니다. `make help`에서 전체 명령을 볼 수 있습니다.
+
+> **데이터를 갱신한 뒤에는 `make restart`로 API를 재시작하세요.** `make seed`, `make ingest`, `make collect`는 API와 다른 프로세스에서 실행되어 API의 메모리 캐시를 비우지 못합니다. 재시작하지 않으면 이전 FAQ 답변·시세는 최대 1시간, ETF 정보는 최대 1일 동안 그대로 나올 수 있습니다. 실행 스크립트(`run-fake.sh`, `run-local.sh`)로 처음 띄울 때와 운영 화면에서 문서를 업로드할 때는 필요 없습니다.
 
 ## 설정
 
@@ -91,7 +94,7 @@ make down                        # 컨테이너 종료, 볼륨 유지
 
 로컬 실행이 중심인 MVP입니다. 배포 구성은 Azure와 Supabase를 계획하고 있으며, 실제 로그인 수단 및 Supabase/Entra 인증, Azure Blob 저장소, Cloudflare Access, Langfuse 어댑터는 아직 구현이 필요합니다. 자세한 구성은 [Azure 안내](infra/azure/README.md)를 참고하세요.
 
-가드의 검증 모델을 호출하지 못하거나 판정 결과를 두 번 연속 해석하지 못하면 답변을 내보내지 않고 안전 답변으로 대체합니다. 캐시는 프로세스별 메모리에 있으므로 별도 프로세스의 데이터 적재나 다른 API 인스턴스에 캐시 삭제가 전파되지 않습니다.
+가드의 검증 모델을 호출하지 못하거나 판정 결과를 두 번 연속 해석하지 못하면 답변을 내보내지 않고 안전 답변으로 대체합니다. 캐시는 프로세스별 메모리에 있으므로 별도 프로세스의 데이터 적재나 다른 API 인스턴스에 캐시 삭제가 전파되지 않습니다. 로컬에서는 `make restart`로 해결하고, API 인스턴스를 여러 개 띄우는 배포에서는 공유 캐시(Redis 등)가 필요합니다.
 
 ## 디렉터리
 

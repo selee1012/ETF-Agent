@@ -50,6 +50,10 @@ up: check-env ## db·api·web 기동(빌드 포함), 헬스체크 통과까지 �
 down: check-env ## 모든 컨테이너 중지(볼륨 유지)
 	$(COMPOSE) down
 
+.PHONY: restart
+restart: check-env ## api 재시작 — seed·ingest·collect 뒤 API의 메모리 캐시를 비운다
+	$(COMPOSE) restart api
+
 .PHONY: ps
 ps: check-env ## 컨테이너 상태
 	$(COMPOSE) ps
