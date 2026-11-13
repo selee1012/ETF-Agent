@@ -62,6 +62,17 @@ async def test_etf_info_filter_search(deps: AgentDeps) -> None:
     assert "샘플 골드선물" not in st["answer"]  # 보수 0.68%
 
 
+async def test_condition_search_after_etf_turn_is_not_treated_as_followup(deps: AgentDeps) -> None:
+    prior = {"context_tickers": ["900010"], "history": [{"role": "user", "content": "이전 질문"}]}
+    st = await ask(deps, "총보수 0.1% 이하 해외 주식 ETF 찾아줘", **prior)
+    assert st["intents"] == ["etf_info"]
+    assert "검색 결과" in st["answer"] and "샘플 미국S&P500" in st["answer"]
+    assert "샘플 코스피200 정보" not in st["answer"]  # 직전 ETF 정보표가 아니다
+
+    followup = await ask(deps, "그럼 괴리율은?", **prior)  # 후속 질문은 그대로 직전 ETF를 잇는다
+    assert "샘플 코스피200" in followup["answer"]
+
+
 @pytest.mark.parametrize(
     ("query", "expected"),
     [

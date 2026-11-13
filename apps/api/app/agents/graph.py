@@ -31,7 +31,7 @@ from app.agents.guard import run_guard
 from app.agents.guard.judge import UNVERIFIED
 from app.agents.guard.templates import high_risk_answer, safe_answer, template_answer
 from app.agents.orchestrator import classify
-from app.agents.orchestrator.rules import is_blocked, is_domain, is_followup_info
+from app.agents.orchestrator.rules import is_blocked, is_domain, is_followup_info, is_search
 from app.agents.preprocess import load_catalog, normalize, recognize_entities
 from app.agents.state import (
     AgentDeps,
@@ -45,6 +45,7 @@ from app.agents.state import (
 from app.llm.base import LLMError
 from app.llm.tracking import LLMUsage, TrackedLLM
 from app.logging import get_logger
+from app.tools import etf_search
 
 log = get_logger(__name__)
 
@@ -112,10 +113,21 @@ async def orchestrate_node(state: GraphState, config: RunnableConfig) -> dict[st
     # 이번 질문에 ETF가 없으면 직전 턴의 ETF를 이어 쓴다(ETF 정보·공시 의도일 때만).
     if not entities and context and (Intent.ETF_INFO in intents or Intent.DISCLOSURE in intents):
         catalog = {c.ticker: c for c in await load_catalog(deps.maker)}
-        update["entities"] = [
-            EtfEntity(t, catalog[t].name, "", 0.0, "context") for t in context if t in catalog
-        ]
+        # 조건 검색('총보수 0.1% 이하 해외 주식 ETF 찾아줘')은 직전 ETF의 후속 질문이 아니다.
+        # 직전 ETF를 넣으면 검색 대신 그 ETF의 정보표가 다시 나온다.
+        if not _is_condition_search(state["normalized"], intents, catalog.values()):
+            update["entities"] = [
+                EtfEntity(t, catalog[t].name, "", 0.0, "context") for t in context if t in catalog
+            ]
     return update
+
+
+def _is_condition_search(text: str, intents: list[str], catalog: Any) -> bool:
+    """ETF 이름 없이 조건(분류·지역·기초지수·보수)으로 상품을 찾는 ETF 정보 질문인지."""
+    if Intent.DISCLOSURE in intents or not is_search(text):
+        return False
+    indexes = sorted({c.underlying_index for c in catalog if c.underlying_index})
+    return not etf_search.parse_filters(text, indexes).is_empty()
 
 
 async def _prefetch(state: GraphState, deps: AgentDeps) -> list[Any] | None:

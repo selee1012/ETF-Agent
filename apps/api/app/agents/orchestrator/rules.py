@@ -116,6 +116,11 @@ def is_domain(text: str) -> bool:
     return _any(DOMAIN, text)
 
 
+def is_search(text: str) -> bool:
+    """'찾아줘'·'목록'·'이하'처럼 조건으로 상품을 찾는 표현이 있는지."""
+    return _any(SEARCH, text)
+
+
 def is_followup_info(text: str) -> bool:
     """'그럼 괴리율은?'처럼 정의 질문이 아닌 정보 항목만 묻는 후속 질문."""
     return _any(ETF_INFO, text) and not _any(FAQ_DEF, text)
