@@ -1,6 +1,7 @@
 # 고도화 버전: Azure 구성
 
-로컬은 Docker(Postgres·OpenAI API 또는 fake)로 개발하고, 고도화·배포 버전은 **전체를 Azure**에 둔다.
+로컬은 Docker(Postgres·OpenAI API 또는 fake)로 개발하고, 고도화·배포 버전은 **Azure**에 둔다.
+DB만 비용을 줄이려고 **Supabase 서울 리전**을 쓴다(아래 DB 절).
 코드 변경 없이 **환경변수만** 바꿔 옮기는 것이 원칙이다(공통 규칙 3). 아직 스텁인 어댑터는 아래 표에 표시했다.
 
 ## AWS → Azure 대응표
@@ -11,7 +12,7 @@
 | 임베딩 | Bedrock Titan v2 | Azure OpenAI `text-embedding-3-small`(`dimensions=1024`) | `EMBEDDING_MODEL`=배포 이름, `EMBEDDING_REQUEST_DIMENSIONS=true` | 동작 |
 | 자체 호스팅 sLLM | EC2/ECS GPU + vLLM | Azure GPU VM(NC 계열) 또는 AKS GPU 노드 + vLLM | `LLM_BASE_URL`=VNet 내부 주소 | 동작(어댑터 공통) |
 | LLM 폴백 | Bedrock | Azure OpenAI | `FALLBACK_PROVIDER=openai_compat`, `FALLBACK_BASE_URL`, `FALLBACK_API_KEY`, `FALLBACK_MODEL` | 동작(vLLM을 1순위로 쓸 때만 의미 있음) |
-| DB | RDS/Aurora PostgreSQL | Azure Database for PostgreSQL **Flexible Server** | `DATABASE_URL` | 코드 변경 없음 |
+| DB | RDS/Aurora PostgreSQL | **Supabase 서울 리전 유지**(비용). 대안: Azure Database for PostgreSQL Flexible Server | `DATABASE_URL` | 코드 변경 없음 |
 | 인증 | Cognito | **자체 발급 JWT 유지**(기본) 또는 Microsoft Entra External ID | `AUTH_PROVIDER=local` 또는 `entra` | local은 로그인 수단 보강 필요, entra는 스텁 |
 | 파일 저장 | S3 | **Azure Blob Storage** | `STORAGE_PROVIDER=azure_blob` | 스텁(`app/storage/azure_blob.py`) |
 | API 실행 | ECS Fargate | Azure Container Apps | 컨테이너 환경변수 | — |
@@ -83,7 +84,18 @@ FALLBACK_ALLOWED_INTENTS=faq
 - `FALLBACK_API_KEY`는 Key Vault 비밀 참조로 주입한다. URL이나 모델이 비어 있으면 기동하지 않는다.
 - 폴백은 gpt-5 계열 형식(`max_completion_tokens`, 온도 생략)으로 부른다. 생각 분량은 `FALLBACK_REASONING_EFFORT`(기본 `minimal`).
 
-## DB — Azure Database for PostgreSQL Flexible Server
+## DB — Supabase 서울 리전 (비용 우선)
+
+- 프로젝트를 만들 때 리전을 **Northeast Asia (Seoul)**, `ap-northeast-2`로 고른다. Azure koreacentral도 서울이라 API ↔ DB 지연이 작다.
+- `DATABASE_URL`은 **Session pooler(5432)** 주소를 `postgresql+asyncpg://` 스킴으로 넣는다
+  (Transaction pooler는 asyncpg prepared statement와 충돌한다). pgvector·pg_trgm은 마이그레이션이 `extensions` 스키마에 만든다.
+- 무료 플랜은 DB 500MB이고 **1주일 동안 사용이 없으면 일시 중지**된다(데이터는 남고 수동 복구). 데모·개발은 무료로,
+  상시 운영은 Pro로 올린다. 요금·한도는 바뀔 수 있으니 supabase.com/pricing에서 확인한다.
+- Supabase는 Azure 밖(AWS 서울)에 있어 연결이 공용 인터넷(TLS)을 지난다. VNet 안에만 DB를 둬야 하는 보안 요건이 생기면 아래 대안으로 옮긴다.
+
+### 대안: Azure Database for PostgreSQL Flexible Server
+
+`DATABASE_URL`만 바꾸면 된다. 인스턴스가 상시 과금되므로 사설망(Private Endpoint)·규모가 필요해질 때 쓴다.
 
 - 서버 매개변수 `azure.extensions`에 `VECTOR`, `PG_TRGM`을 허용 목록으로 넣어야 마이그레이션의 `CREATE EXTENSION`이 통과한다.
 - `DATABASE_URL=postgresql+asyncpg://<사용자>:<비밀번호>@<서버>.postgres.database.azure.com:5432/<DB>?ssl=require`
@@ -96,10 +108,11 @@ API는 어느 방식이든 **Bearer JWT를 검증**한다(`app/auth/base.py`의 
 | 방식 | 발급 | 설정 | 더 만들 것 |
 | --- | --- | --- | --- |
 | 자체 발급 JWT(기본) | API 서버 | `AUTH_PROVIDER=local`, `LOCAL_JWT_SECRET`(Key Vault) | 실제 로그인 수단. 지금 `dev-login`은 이메일만 받아 토큰을 주며 `APP_ENV=local`에서만 열린다 |
+| Supabase Auth | Supabase | `AUTH_PROVIDER=supabase`, `SUPABASE_URL` | `app/auth/supabase_jwt.py`(JWKS 검증), web `src/lib/auth.ts`. DB를 Supabase에 두면 추가 비용 없이 쓸 수 있다 |
 | Entra External ID | Azure | `AUTH_PROVIDER=entra`, `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID` | `app/auth/entra_jwt.py`(JWKS 검증), web 로그인 연동 |
 
 자체 발급으로 갈 때 배포 전에 필요한 것: 비밀번호(해시 저장) 또는 소셜 로그인, 토큰 만료·재발급(지금은 12시간 단일 토큰),
-로그인 시도 제한. 가입·비밀번호 재설정·소셜 로그인을 직접 만들고 싶지 않을 때 Entra External ID로 넘어간다.
+로그인 시도 제한. 가입·비밀번호 재설정·소셜 로그인을 직접 만들고 싶지 않을 때 Supabase Auth나 Entra External ID로 넘어간다.
 
 ## 파일 저장 — Blob에 원본, DB에는 주소만
 

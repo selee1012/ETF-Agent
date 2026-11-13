@@ -1,7 +1,7 @@
 # ETF Agent
 
 ETF 질의응답 AI Agent의 MVP(Phase 1) 모노레포. **로컬 Docker에서 끝까지 돌아가는 상태**가 목표이며,
-나중에 Supabase·Cloudflare·Azure로 옮길 때는 **설정(`.env`)과 어댑터만** 바꾸면 되도록 구성했다.
+배포할 때는 **Azure(앱·모델·파일) + Supabase 서울 리전(DB)** 으로 옮기며, **설정(`.env`)과 어댑터만** 바꾸면 되도록 구성했다.
 
 ```
 질문 → 발화 전처리 → 오케스트레이터(의도 분류 ∥ 문서 검색을 동시에) → 자료 수집(ETF 정보 | 지식·FAQ | 공시, 동시에, LLM 없음)
@@ -220,11 +220,26 @@ LLM_API_KEY=<OpenAI API 키>
 금칙 표현·1회 재생성 후 안전 답변(`test_guard.py`), 트레이스 원문 미저장(`test_traces.py`), 오타·별칭 인식(`test_preprocess.py`),
 폴백 라우터·SDK import 경계(`test_llm_router.py`), 일반 대화 모드(`test_general_chat.py`).
 
+## 배포 구성 (계획)
+
+앱·모델·파일은 Azure(koreacentral), DB는 비용을 줄이려고 Supabase 서울 리전(`ap-northeast-2`)에 둔다.
+서비스별 설정은 [`infra/azure/README.md`](infra/azure/README.md)를 본다.
+
+| 구성 요소 | 서비스 | 비고 |
+| --- | --- | --- |
+| LLM·임베딩 | Azure OpenAI | 로컬과 같은 `openai_compat` 어댑터. 외부 API가 금지되면 Azure GPU + vLLM(+ Azure OpenAI 폴백) |
+| DB(pgvector) | **Supabase**(서울) | 무료 플랜으로 시작, 상시 운영은 Pro. 사설망·규모가 필요해지면 Azure Database for PostgreSQL로 `DATABASE_URL`만 교체 |
+| 인증 | 자체 발급 JWT | 배포 전 실제 로그인 수단 필요. 직접 만들지 않으려면 Supabase Auth(무료 범위) 또는 Entra External ID |
+| 파일(원본) | Azure Blob Storage | DB에는 주소(`documents.source_uri`)만 |
+| API·배치 | Azure Container Apps / Container Apps Jobs | 사용량 과금, 트래픽 없을 때 0으로 축소 가능 |
+| 웹 | Azure Static Web Apps | |
+| 비밀값 | Azure Key Vault | |
+
 ## 확장 지점 (배포 시 바꿀 설정·어댑터)
 
 | 영역 | 지금(로컬) | 나중 | 바꿀 설정 | 구현할 파일 |
 | --- | --- | --- | --- | --- |
-| DB | 로컬 Postgres 컨테이너 | Supabase(Session pooler 5432) → Azure Database for PostgreSQL | `DATABASE_URL` | 없음(마이그레이션이 `extensions` 스키마를 자동 감지) |
+| DB | 로컬 Postgres 컨테이너 | Supabase 서울 리전(Session pooler 5432). 필요 시 Azure Database for PostgreSQL | `DATABASE_URL` | 없음(마이그레이션이 `extensions` 스키마를 자동 감지) |
 | 인증 | local JWT(dev-login) | **자체 발급 JWT 유지**(로그인 수단 보강) 또는 Supabase Auth·Entra External ID | `AUTH_PROVIDER`, `SUPABASE_*`/`ENTRA_*` | 자체 발급: 로그인 라우터. 외부: `app/auth/supabase_jwt.py`, `app/auth/entra_jwt.py`, web `src/lib/auth.ts` |
 | 운영 화면 인증 | role=admin | Cloudflare Access | `ADMIN_AUTH=cf_access`, `CF_ACCESS_*` | `app/auth/cf_access.py` |
 | 파일 저장 | 로컬 볼륨 | Azure Blob Storage(원본) + DB `documents.source_uri`(주소) | `STORAGE_PROVIDER` | `app/storage/azure_blob.py`(또는 `app/storage/supabase_storage.py`) |
@@ -333,7 +348,8 @@ my-rag-project/ 2주차 실습 RAG 프로토타입(.env, requirements.txt, rag_m
 | 2026-11-12 | 분류기 프롬프트에 '살 수 있나요'(제도 질문)는 faq, 개인 판단·예측·계산만 high_risk라는 경계와 예시를 둔다 | 실제 모델이 "조금이라도 있으면 포함" 규칙을 과하게 적용해 제도 질문을 고위험으로 막았다 |
 | 2026-11-12 | 위험 요청(해킹·보안 공격, 불법 행위 방법, 프롬프트 인젝션)은 `blocked` 의도로 즉시 차단: 규칙에 걸리면 LLM을 부르지 않고 고정 문구, 규칙을 비켜 가면 분류기가 잡는다. 우선순위는 차단 > 고위험 > 추천 | 일반 대화 모드에서 모델이 "서면 허가를 받으면…" 식으로 답하다가 "허가받았다"는 말에 침투 가이드를 주려 했다. 사유로 설득되는 경로를 없앤다 |
 | 2026-11-12 | 직전 답변이 차단이면 범위 밖 후속 질문("허가 받았어")도 차단, ETF 질문으로 돌아오면 정상 답변 | 사유를 덧붙여 차단을 푸는 다단계 시도를 막되 정상 이용은 막지 않는다 |
-| 2026-11-13 | 고도화 버전 인프라는 전체 Azure로 간다(이전 AWS 계획 대체). LLM·임베딩은 Azure OpenAI, DB는 Azure Database for PostgreSQL, 대응표는 `infra/azure/README.md` | 인프라를 한 클라우드로 통일한다. Azure OpenAI는 `openai_compat` 어댑터로 이미 동작해 코드 변경이 없다 |
+| 2026-11-13 | 고도화 버전 인프라는 전체 Azure로 간다(이전 AWS 계획 대체). LLM·임베딩은 Azure OpenAI, 대응표는 `infra/azure/README.md` | 앱·모델·파일을 한 클라우드로 통일한다. Azure OpenAI는 `openai_compat` 어댑터로 이미 동작해 코드 변경이 없다 |
 | 2026-11-13 | 인증은 배포 후에도 JWT 검증 구조를 유지한다. 기본은 자체 발급 JWT, Cognito 스텁은 Entra External ID 스텁(`AUTH_PROVIDER=entra`)으로 바꿈 | 외부 로그인 서비스도 결국 JWT를 발급하므로 API 쪽 구조는 같다. 자체 발급으로 가려면 `dev-login`을 대신할 실제 로그인 수단이 필요하다 |
 | 2026-11-13 | 원본 파일은 Azure Blob Storage에, DB에는 주소(`documents.source_uri`)만 둔다. S3 스텁은 `STORAGE_PROVIDER=azure_blob` 스텁으로 바꿈 | 답변에 쓰는 본문 조각·임베딩은 이미 DB `chunks`에 있어 원본을 DB에 중복 저장할 이유가 없다. 목록·재-ingest 갱신은 `source_uri` 기준이라 DB 기록은 필요하다 |
 | 2026-11-13 | Bedrock 어댑터·`boto3`·`infra/aws/` 제거. 폴백은 `FALLBACK_PROVIDER=openai_compat`(`FALLBACK_BASE_URL`·`FALLBACK_API_KEY`·`FALLBACK_MODEL`)로 Azure OpenAI에 넘긴다 | AWS를 쓰지 않으므로 유지할 이유가 없다. 폴백도 같은 `openai_compat` 어댑터를 써서 SDK 의존성이 하나 줄었다 |
+| 2026-11-13 | DB는 Supabase 서울 리전(`ap-northeast-2`)을 유지한다. Azure Database for PostgreSQL은 사설망·규모가 필요해질 때의 대안으로만 둔다 | 비용 최적화: 무료 플랜으로 시작할 수 있고 Azure는 인스턴스를 상시 과금한다. Azure koreacentral과 같은 서울이라 지연이 작다. 무료 플랜은 1주일 미사용 시 일시 중지되므로 상시 운영은 Pro |
