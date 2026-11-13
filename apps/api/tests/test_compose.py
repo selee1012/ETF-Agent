@@ -90,6 +90,23 @@ async def test_faq_cache_skips_llm_on_repeat(deps: AgentDeps, fake_llm: FakeLLM)
     assert fake_llm.count("answer") == calls + 1
 
 
+async def test_faq_cache_is_not_used_when_combined_with_other_intents(
+    deps: AgentDeps, fake_llm: FakeLLM
+) -> None:
+    q = "샘플 코스피200 괴리율이 뭐야?"
+    fake_llm.push("classify", json.dumps({"intents": ["faq"]}))
+    first = await ask(deps, q)
+    assert first["intents"] == ["faq"] and first["cache_key"]  # FAQ 단독으로 캐시됨
+
+    fake_llm.push("classify", json.dumps({"intents": ["etf_info", "faq"]}))
+    seen = capture_answer(fake_llm, "괴리율은 시장가격과 NAV의 차이입니다 [1].")
+    second = await ask(deps, q)
+    assert second["intents"] == ["etf_info", "faq"]
+    assert not second.get("cached")
+    assert "[근거 1]" in seen[0][1].content  # 캐시 답변이 아니라 근거 문서를 보고 쓴다
+    assert second["results"]["faq"].retrieved_ids
+
+
 @pytest.mark.parametrize(
     ("query", "uses_previous"),
     [

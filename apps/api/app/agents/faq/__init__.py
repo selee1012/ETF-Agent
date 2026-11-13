@@ -9,7 +9,7 @@ import re
 from dataclasses import replace
 
 from app import cache
-from app.agents.state import AgentDeps, AgentResult, GraphState, Level, Source
+from app.agents.state import AgentDeps, AgentResult, GraphState, Intent, Level, Source
 from app.rag.retriever import RetrievedChunk, hybrid_search
 
 NAME = "faq"
@@ -86,7 +86,9 @@ def evidence_block(chunks: list[RetrievedChunk]) -> str:
 
 async def run(state: GraphState, deps: AgentDeps) -> AgentResult:
     await deps.emit(NAME, "관련 자료를 찾는 중")
-    if (hit := cached_answer(state)) is not None:
+    # 캐시에는 완성된 답변만 있고 근거 블록이 없다. FAQ 단독 질문일 때만 그대로 쓸 수 있고,
+    # 다른 의도와 함께면 합성 단계가 근거를 보고 새로 써야 하므로 문서를 검색한다.
+    if state.get("intents") == [Intent.FAQ] and (hit := cached_answer(state)) is not None:
         return hit
     chunks = state.get("prefetched_chunks")
     if chunks is None:
