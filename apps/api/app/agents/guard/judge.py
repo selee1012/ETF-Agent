@@ -61,13 +61,14 @@ UNVERIFIED = frozenset({UNAVAILABLE, UNPARSED})
 
 
 async def judge(
-    llm: LLMClient, *, model: str, answer: str, evidence: list[str]
+    llm: LLMClient, *, model: str, answer: str, evidence: list[str], intent: str | None = None
 ) -> tuple[list[str], dict[str, Any] | None]:
     """(실패 사유 목록, 판정 JSON).
 
     판정을 받지 못하면 통과시키지 않는다(검증되지 않은 답변을 내보내지 않는다).
     - 호출 실패: judge:unavailable (재시도는 LLM 어댑터가 이미 했다)
     - 응답 해석 실패: 한 번 더 물어보고, 그래도 안 되면 judge:unparsed
+    intent는 폴백 허용 여부 판단용이다(근거·답변이 허용된 의도일 때만 폴백 엔드포인트로 간다).
     """
     ev = "\n\n".join(evidence)[:6000]
     messages = [
@@ -78,7 +79,13 @@ async def judge(
     for _ in range(2):
         try:
             resp = await llm.complete(
-                messages, task="judge", model=model, json_mode=True, temperature=0, max_tokens=300
+                messages,
+                task="judge",
+                intent=intent,
+                model=model,
+                json_mode=True,
+                temperature=0,
+                max_tokens=300,
             )
         except LLMError:
             return [UNAVAILABLE], None

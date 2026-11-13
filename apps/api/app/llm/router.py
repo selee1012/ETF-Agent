@@ -3,6 +3,9 @@
 - FALLBACK_PROVIDER=none: 1순위가 실패하면 LLMUnavailableError → 그래프가 안전 답변을 낸다.
 - FALLBACK_PROVIDER=openai_compat: FALLBACK_ALLOWED_INTENTS에 든 의도만 다른 OpenAI 호환 엔드포인트
   (FALLBACK_BASE_URL·FALLBACK_MODEL)로 다시 호출한다(예: 자체 호스팅 sLLM 장애 시 FAQ만 Azure OpenAI로).
+- 의도를 밝히지 않은 호출(의도 분류 등)은 폴백으로 보내지 않는다. 어떤 질문인지 모르는 채로
+  질문 원문을 다른 엔드포인트에 보내면 허용 의도 제한이 무의미해진다. 복수 의도는 'a+b'로 받고
+  모두 허용돼야 한다.
 """
 
 from app.llm.base import ChatMessage, LLMClient, LLMError, LLMResponse, LLMUnavailableError
@@ -42,6 +45,11 @@ class LLMRouter(LLMClient):
         self.allowed_intents = set(allowed_intents)
         self.model = primary.model
 
+    def _may_fall_back(self, intent: str | None) -> bool:
+        if self.fallback is None or not intent:
+            return False
+        return all(i in self.allowed_intents for i in intent.split("+"))
+
     async def complete(
         self,
         messages: list[ChatMessage],
@@ -64,7 +72,7 @@ class LLMRouter(LLMClient):
         try:
             return await self.primary.complete(messages, **kwargs)
         except LLMError as e:
-            if self.fallback is None or (intent and intent not in self.allowed_intents):
+            if not self._may_fall_back(intent):
                 raise LLMUnavailableError(str(e)) from e
             # 폴백은 자기 모델을 쓴다(1순위용 모델 이름·judge 모델 이름을 넘기지 않는다).
             try:

@@ -31,7 +31,11 @@ async def run_guard(
     if not generated:  # DB 표·목록만으로 된 답변은 검증 모델 대상이 아니다
         return GuardResult(passed=True, reasons=["note:judge_skipped_deterministic"])
     judge_reasons, verdict = await judge(
-        deps.llm, model=deps.settings.judge_model_name, answer=body, evidence=evidence
+        deps.llm,
+        model=deps.settings.judge_model_name,
+        answer=body,
+        evidence=evidence,
+        intent="+".join(str(i) for i in intents) or None,
     )
     failed = [r for r in judge_reasons if not r.startswith("note:")]
     return GuardResult(passed=not failed, reasons=judge_reasons, judge=verdict)

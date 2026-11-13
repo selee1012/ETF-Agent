@@ -69,6 +69,26 @@ async def test_router_fallback_failure_is_unavailable():
         await router.complete([ChatMessage("user", "q")], task="faq_answer", intent="faq")
 
 
+async def test_router_does_not_fall_back_without_allowed_intent():
+    """의도를 모르는 호출·허용되지 않은 의도가 섞인 호출은 폴백 엔드포인트로 나가지 않는다."""
+    fallback = FakeLLM(model="fallback")
+    for intent in (None, "etf_info", "faq+etf_info"):
+        router = LLMRouter(FakeLLM(script={"judge": [LLMError("down")]}), fallback, ["faq"])
+        with pytest.raises(LLMUnavailableError):
+            await router.complete([ChatMessage("user", "q")], task="judge", intent=intent)
+    assert fallback.calls == []
+
+
+async def test_disallowed_intent_never_reaches_fallback_in_graph(deps: AgentDeps) -> None:
+    down = [LLMError("down")] * 4
+    primary = FakeLLM(script={"classify": list(down), "answer": list(down), "judge": list(down)})
+    fallback = FakeLLM(model="fallback")
+    deps.llm = LLMRouter(primary, fallback, ["faq"])
+    st = await run_graph(deps, request_id="t", query="샘플 반도체 최근 공시 알려줘")
+    assert st["intents"] == ["disclosure"]  # 분류는 키워드 규칙으로 대체
+    assert fallback.calls == []
+
+
 @pytest.mark.parametrize("pkg", ["agents", "tools", "rag"])
 def test_domain_code_does_not_import_provider_sdks(pkg):
     """공통 규칙 1: 공급자 SDK는 어댑터(llm/, auth/, storage/, observability/)에서만."""
@@ -85,15 +105,17 @@ def test_domain_code_does_not_import_provider_sdks(pkg):
 
 
 async def test_graph_records_fallback_and_answer_model(deps: AgentDeps) -> None:
-    primary = FakeLLM(model="primary", script={"answer": [LLMError("down")]})
+    primary = FakeLLM(
+        model="primary", script={"answer": [LLMError("down")], "judge": [LLMError("down")]}
+    )
     deps.llm = LLMRouter(primary, FakeLLM(model="fallback"), ["faq"])
     before = LLM_CALLS.labels("answer", "fallback")._value.get()
     st = await run_graph(deps, request_id="t", query="괴리율이 뭐야?")
-    assert st["verdict"] == "pass"
+    assert st["verdict"] == "pass"  # 허용 의도(faq)는 답변·판정 모두 폴백으로 이어진다
     assert st["fallback_used"] is True
     assert st["model"] == "fallback"  # 트레이스에는 실제로 답변을 쓴 모델이 남는다
     assert LLM_CALLS.labels("answer", "fallback")._value.get() == before + 1
-    assert b'etf_llm_calls_total{outcome="ok",task="judge"}' in render()
+    assert b'etf_llm_calls_total{outcome="fallback",task="judge"}' in render()
 
 
 async def test_graph_without_fallback_keeps_primary_model(deps: AgentDeps) -> None:
