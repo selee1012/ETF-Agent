@@ -89,6 +89,22 @@ async def test_disallowed_intent_never_reaches_fallback_in_graph(deps: AgentDeps
     assert fallback.calls == []
 
 
+async def test_multi_intent_answer_does_not_leak_to_fallback(deps: AgentDeps) -> None:
+    """faq만 허용일 때 'etf_info+faq' 질문의 ETF 자료가 답변 호출로 폴백에 나가지 않는다."""
+    primary = FakeLLM(
+        script={
+            "classify": ['{"intents": ["etf_info", "faq"]}'],
+            "answer": [LLMError("down")],
+        }
+    )
+    fallback = FakeLLM(model="fallback")
+    deps.llm = LLMRouter(primary, fallback, ["faq"])
+    st = await run_graph(deps, request_id="t", query="샘플 코스피200 괴리율이 뭐야?")
+    assert st["intents"] == ["etf_info", "faq"]
+    assert fallback.calls == []
+    assert [c["intent"] for c in primary.calls if c["task"] == "answer"] == ["etf_info+faq"]
+
+
 @pytest.mark.parametrize("pkg", ["agents", "tools", "rag"])
 def test_domain_code_does_not_import_provider_sdks(pkg):
     """공통 규칙 1: 공급자 SDK는 어댑터(llm/, auth/, storage/, observability/)에서만."""

@@ -103,8 +103,9 @@ async def _write(
     resp = await deps.llm.complete(
         [ChatMessage("system", system_prompt(level)), ChatMessage("user", user)],
         task="answer",
-        # 폴백 허용 의도(FALLBACK_ALLOWED_INTENTS) 판단용: 근거 문서 설명이 있으면 faq
-        intent=Intent.FAQ.value if docs else found[0].agent,
+        # 폴백 허용 의도(FALLBACK_ALLOWED_INTENTS) 판단용: 프롬프트에 자료를 넣은 수집 의도 전부.
+        # 하나만 넘기면 'faq+disclosure' 질문의 공시 자료가 faq 허용만으로 폴백 엔드포인트로 나간다.
+        intent="+".join(r.agent for r in found if r.context),
         max_tokens=None if docs else DATA_ONLY_MAX_TOKENS,
     )
     return resp.text.strip()
