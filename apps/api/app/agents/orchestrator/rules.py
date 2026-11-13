@@ -116,6 +116,17 @@ def is_domain(text: str) -> bool:
     return _any(DOMAIN, text)
 
 
+# 직전 턴의 상품을 가리키는 표현('이 상품 총보수 0.1% 이하 맞아?')
+_PREVIOUS = _P(
+    r"(이|그|저|해당|위)\s*(상품|etf|이티에프|펀드|종목)",
+    r"(이거|이건|이게|그거|그건|그게|얘는|얘가|걔는)",
+)
+
+
+def refers_to_previous(text: str) -> bool:
+    return _any(_PREVIOUS, text)
+
+
 def is_search(text: str) -> bool:
     """'찾아줘'·'목록'·'이하'처럼 조건으로 상품을 찾는 표현이 있는지."""
     return _any(SEARCH, text)

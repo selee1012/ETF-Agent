@@ -31,7 +31,13 @@ from app.agents.guard import run_guard
 from app.agents.guard.judge import UNVERIFIED
 from app.agents.guard.templates import high_risk_answer, safe_answer, template_answer
 from app.agents.orchestrator import classify
-from app.agents.orchestrator.rules import is_blocked, is_domain, is_followup_info, is_search
+from app.agents.orchestrator.rules import (
+    is_blocked,
+    is_domain,
+    is_followup_info,
+    is_search,
+    refers_to_previous,
+)
 from app.agents.preprocess import load_catalog, normalize, recognize_entities
 from app.agents.state import (
     AgentDeps,
@@ -123,11 +129,17 @@ async def orchestrate_node(state: GraphState, config: RunnableConfig) -> dict[st
 
 
 def _is_condition_search(text: str, intents: list[str], catalog: Any) -> bool:
-    """ETF 이름 없이 조건(분류·지역·기초지수·보수)으로 상품을 찾는 ETF 정보 질문인지."""
-    if Intent.DISCLOSURE in intents or not is_search(text):
+    """ETF 이름 없이 조건(분류·지역·기초지수·보수)으로 상품을 찾는 ETF 정보 질문인지.
+
+    보수 조건이 있으면 표현('찾아줘'·'알려줘')과 상관없이 조건 검색이다. 그 밖의 조건은 검색
+    표현이 있을 때만 본다('해외 주식형이랑 비교하면?'은 후속 질문). 직전 상품을 가리키면
+    ('이 상품 총보수 0.1% 이하 맞아?') 조건이 있어도 후속 질문이다.
+    """
+    if Intent.DISCLOSURE in intents or refers_to_previous(text):
         return False
     indexes = sorted({c.underlying_index for c in catalog if c.underlying_index})
-    return not etf_search.parse_filters(text, indexes).is_empty()
+    filters = etf_search.parse_filters(text, indexes)
+    return filters.has_fee() or (is_search(text) and not filters.is_empty())
 
 
 async def _prefetch(state: GraphState, deps: AgentDeps) -> list[Any] | None:

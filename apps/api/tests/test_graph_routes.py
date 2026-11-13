@@ -74,6 +74,22 @@ async def test_condition_search_after_etf_turn_is_not_treated_as_followup(deps: 
 
 
 @pytest.mark.parametrize(
+    ("query", "is_search"),
+    [
+        ("총보수 0.3% 초과 ETF 알려줘", True),  # '찾아줘'·'이하'가 없어도 조건 검색
+        ("보수 0.2%보다 낮은 해외 주식 ETF 알려줘", True),
+        ("이 상품 총보수 0.1% 이하 맞아?", False),  # 직전 상품을 가리키는 후속 질문
+    ],
+)
+async def test_condition_search_detection(deps: AgentDeps, query: str, is_search: bool) -> None:
+    prior = {"context_tickers": ["900010"], "history": [{"role": "user", "content": "이전 질문"}]}
+    st = await ask(deps, query, **prior)
+    assert st["intents"] == ["etf_info"]
+    assert ("검색 결과" in st["answer"]) is is_search
+    assert ("샘플 코스피200 정보" in st["answer"]) is not is_search
+
+
+@pytest.mark.parametrize(
     ("query", "expected"),
     [
         ("총보수 0.001% 이하 ETF 찾아줘", "조건(총보수 0.001% 이하)에 맞는 ETF가 없습니다."),
