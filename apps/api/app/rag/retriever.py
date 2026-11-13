@@ -43,9 +43,16 @@ async def hybrid_search(
     candidates: int = 20,
 ) -> list[RetrievedChunk]:
     # 같은 세션을 동시에 두 쿼리가 쓰지 않도록 DB 조회는 하나씩, 임베딩 호출만 겹친다.
+    # 한쪽이 실패해도 다른 쪽이 끝날 때까지 기다린다. 임베딩이 먼저 실패했을 때 바로 예외를 올리면
+    # 호출 측이 쿼리가 도는 세션을 닫으려다 다른 예외(LLMError가 아닌)가 나서 그래프 전체가 죽는다.
     qvec, trg = await asyncio.gather(
-        embed_query(embedder, query), doc_repo.trgm_candidates(session, query, candidates)
+        embed_query(embedder, query),
+        doc_repo.trgm_candidates(session, query, candidates),
+        return_exceptions=True,
     )
+    for result in (qvec, trg):
+        if isinstance(result, BaseException):
+            raise result
     vec = await doc_repo.vector_candidates(session, qvec, candidates)
     ids = set(vec) | set(trg)
     scored = sorted(
