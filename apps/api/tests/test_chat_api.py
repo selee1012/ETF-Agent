@@ -189,3 +189,20 @@ async def test_disconnect_still_saves_answer_and_trace(app: FastAPI, user_header
     assert [m.role for m in rows] == ["user", "assistant"]  # 답 없는 질문만 남지 않는다
     async with get_sessionmaker()() as s:
         assert await s.scalar(select(Trace).where(Trace.request_id == rows[0].request_id))
+
+
+async def test_feedback_only_on_own_requests(client: AsyncClient, user_headers: dict) -> None:
+    done = (await chat(client, user_headers, "괴리율이 뭐야?"))[-1][1]
+    rid, mid = done["request_id"], done["message_id"]
+    other = await client.post("/auth/dev-login", json={"email": "fb-other@local.test"})
+    other_h = {"Authorization": f"Bearer {other.json()['access_token']}"}
+
+    async def post(headers: dict, **body) -> int:
+        resp = await client.post("/feedback", json={"kind": "dislike", **body}, headers=headers)
+        return resp.status_code
+
+    assert await post(other_h, request_id=rid) == 404  # 남의 요청
+    assert await post(user_headers, request_id="no-such-request") == 404
+    assert await post(user_headers, request_id=rid) == 201
+    assert await post(user_headers, message_id=mid, request_id="mismatch") == 422
+    assert await post(user_headers, message_id=mid, request_id=rid) == 201

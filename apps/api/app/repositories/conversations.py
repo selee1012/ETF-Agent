@@ -171,6 +171,17 @@ async def get_message(session: AsyncSession, message_id: uuid.UUID) -> Message |
     return await session.get(Message, message_id)
 
 
+async def owns_request(session: AsyncSession, user_id: uuid.UUID, request_id: str) -> bool:
+    """이 request_id의 메시지가 사용자의 대화에 있는지."""
+    stmt = (
+        select(Message.id)
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .where(Message.request_id == request_id, Conversation.user_id == user_id)
+        .limit(1)
+    )
+    return (await session.scalar(stmt)) is not None
+
+
 async def list_feedback(session: AsyncSession, limit: int = 100, offset: int = 0) -> list[Feedback]:
     stmt = select(Feedback).order_by(Feedback.created_at.desc()).limit(limit).offset(offset)
     return list((await session.scalars(stmt)).all())

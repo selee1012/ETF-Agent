@@ -37,14 +37,23 @@ class FeedbackOut(BaseModel):
 async def create_feedback(
     body: FeedbackRequest, c: ContainerDep, principal: PrincipalDep
 ) -> FeedbackOut:
+    """자기 대화의 메시지·요청에만 피드백을 남길 수 있다."""
+    not_found = HTTPException(status.HTTP_404_NOT_FOUND, "메시지를 찾을 수 없습니다")
     async with c.maker() as session:
         request_id = body.request_id
         if body.message_id is not None:
             msg = await conv_repo.get_message(session, body.message_id)
             conv = await session.get(Conversation, msg.conversation_id) if msg else None
             if msg is None or conv is None or conv.user_id != principal.user_id:
-                raise HTTPException(status.HTTP_404_NOT_FOUND, "메시지를 찾을 수 없습니다")
-            request_id = request_id or msg.request_id
+                raise not_found
+            if request_id and msg.request_id and request_id != msg.request_id:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    "message_id와 request_id가 서로 다른 요청을 가리킵니다",
+                )
+            request_id = msg.request_id or request_id
+        elif not await conv_repo.owns_request(session, principal.user_id, request_id or ""):
+            raise not_found
         fb = await conv_repo.add_feedback(
             session,
             user_id=principal.user_id,
