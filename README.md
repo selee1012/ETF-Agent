@@ -73,6 +73,7 @@ make down                        # 컨테이너 종료, 볼륨 유지
 | `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_DIM` | 임베딩 설정. DB 벡터 차원은 1024 |
 | `GENERAL_CHAT_ENABLED` | 일반 대화 활성화. `APP_ENV=local`에서만 허용 |
 | `ADMIN_EMAILS`, `LOCAL_JWT_SECRET` | 개발용 관리자 이메일과 JWT 서명 키 |
+| `METRICS_TOKEN` | `/metrics` 수집용 Bearer 토큰. 비우면 `APP_ENV=local`에서만 열림 |
 | `DATA_GO_KR_API_KEY`, `DART_API_KEY` | 외부 데이터 수집 키 |
 
 ## API
@@ -81,7 +82,7 @@ make down                        # 컨테이너 종료, 볼륨 유지
 
 | 경로 | 기능 |
 | --- | --- |
-| `GET /health`, `GET /metrics` | 상태 확인과 Prometheus 메트릭 |
+| `GET /health`, `GET /metrics` | 상태 확인과 Prometheus 메트릭(`METRICS_TOKEN` 설정 시 Bearer 토큰 필요) |
 | `POST /auth/dev-login`, `GET/PATCH /auth/me` | 로컬 로그인과 설명 수준 설정 |
 | `POST /chat` | 채팅 SSE (`status` → `token` → `sources` → `done`) |
 | `GET/DELETE /history`, `GET/DELETE /history/{id}` | 대화 조회·삭제 |

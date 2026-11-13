@@ -1,10 +1,13 @@
 """트레이스: 요청당 1행, 질의 원문 미저장, /metrics (P1-OP-01·02)."""
 
+from fastapi import FastAPI
 from httpx import AsyncClient
+from pydantic import SecretStr
 from sqlalchemy import inspect, select
 
 from app.db import get_engine, get_sessionmaker
 from app.repositories.models import Trace
+from app.settings import AppEnv
 from tests.sse import parse_sse
 
 RAW_QUERY = "샘플 코스피200 괴리율 알려줘 제 번호는 010-2222-3333 입니다 zz-unique-marker"
@@ -50,3 +53,21 @@ async def test_metrics_endpoint(client: AsyncClient, user_headers: dict) -> None
     assert 'etf_chat_intent_total{intent="faq"}' in body
     assert "etf_guard_block_rate" in body
     assert "etf_http_request_duration_seconds_bucket" in body
+
+
+async def test_metrics_requires_token_when_configured(client: AsyncClient, app: FastAPI) -> None:
+    c = app.state.container
+    c.settings = c.settings.model_copy(update={"metrics_token": SecretStr("scrape-secret")})
+    assert (await client.get("/metrics")).status_code == 401
+    wrong = {"Authorization": "Bearer nope"}
+    assert (await client.get("/metrics", headers=wrong)).status_code == 401
+    ok = await client.get("/metrics", headers={"Authorization": "Bearer scrape-secret"})
+    assert ok.status_code == 200 and "etf_http_requests_total" in ok.text
+
+
+async def test_metrics_hidden_outside_local_without_token(
+    client: AsyncClient, app: FastAPI
+) -> None:
+    c = app.state.container
+    c.settings = c.settings.model_copy(update={"app_env": AppEnv.DEV, "metrics_token": None})
+    assert (await client.get("/metrics")).status_code == 404

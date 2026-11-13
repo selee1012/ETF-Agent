@@ -102,6 +102,8 @@ class Settings(BaseSettings):
     # Microsoft Entra External ID (스텁에서 사용 예정)
     entra_tenant_id: str | None = None
     entra_client_id: str | None = None
+    # /metrics 수집용 토큰(Authorization: Bearer). 비우면 APP_ENV=local에서만 열고, 그 밖에는 404
+    metrics_token: SecretStr | None = None
     # Cloudflare Access (스텁에서 사용 예정)
     cf_access_team_domain: str | None = None
     cf_access_aud: str | None = None
