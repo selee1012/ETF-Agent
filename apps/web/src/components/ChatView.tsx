@@ -63,6 +63,9 @@ export function ChatView({ onAuthError }: { onAuthError: () => void }) {
   }
 
   function newConversation() {
+    // 답변을 받는 중이면 그 스트림을 끊는다. 끊지 않으면 뒤늦게 온 done이 이전 대화로 되돌린다.
+    // 서버는 끊겨도 답변을 저장하므로 대화 목록에서 다시 열 수 있다.
+    abortRef.current?.abort()
     setSidebarOpen(false)
     setConversationId(null)
     setMessages([])
@@ -123,6 +126,7 @@ export function ChatView({ onAuthError }: { onAuthError: () => void }) {
           onToken: (t) => patch(aKey, (m) => ({ ...m, content: m.content + t })),
           onSources: (sources) => patch(aKey, (m) => ({ ...m, sources })),
           onDone: (d) => {
+            if (ctrl.signal.aborted) return // 이미 다른 대화로 넘어갔다
             setConversationId(d.conversation_id)
             patch(aKey, (m) => ({ ...m, streaming: false, messageId: d.message_id }))
           },
@@ -131,6 +135,7 @@ export function ChatView({ onAuthError }: { onAuthError: () => void }) {
       )
       refreshConversations()
     } catch (e) {
+      if (ctrl.signal.aborted) return refreshConversations() // 사용자가 새 대화로 넘어갔다
       const status = (e as { status?: number })?.status
       if (status === 401) return onAuthError()
       patch(aKey, (m) => ({
@@ -139,6 +144,7 @@ export function ChatView({ onAuthError }: { onAuthError: () => void }) {
         error: e instanceof Error ? e.message : '요청 실패',
       }))
     } finally {
+      if (abortRef.current === ctrl) abortRef.current = null
       setBusy(false)
     }
   }
