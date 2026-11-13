@@ -10,6 +10,28 @@ from app.llm.base import ChatMessage, LLMClient, LLMError
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
+_TRUE = frozenset({"true", "yes", "y", "1", "예", "네", "참"})
+_FALSE = frozenset({"false", "no", "n", "0", "아니오", "아니요", "거짓"})
+
+
+def _as_bool(value: Any) -> bool | None:
+    """JSON 불리언과 그 문자열 표기("false" 등)만 받아들인다. 해석할 수 없으면 None.
+
+    bool("false")는 True라서 bool()로 바꾸면 '근거 없음' 판정이 통과로 뒤집힌다.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in _TRUE:
+            return True
+        if s in _FALSE:
+            return False
+    return None
+
+
 def parse_judge(text: str) -> dict[str, Any] | None:
     m = _JSON_RE.search(text or "")
     if not m:
@@ -20,10 +42,14 @@ def parse_judge(text: str) -> dict[str, Any] | None:
         return None
     if not isinstance(data, dict) or "grounded" not in data:
         return None
+    grounded = _as_bool(data["grounded"])
+    solicitation = _as_bool(data.get("is_solicitation", False))
+    if grounded is None or solicitation is None:
+        return None  # 값을 해석하지 못하면 판정 실패로 본다(통과시키지 않는다)
     issues = data.get("issues") or []
     return {
-        "grounded": bool(data.get("grounded")),
-        "is_solicitation": bool(data.get("is_solicitation", False)),
+        "grounded": grounded,
+        "is_solicitation": solicitation,
         "issues": [str(i)[:120] for i in issues][:5] if isinstance(issues, list) else [],
     }
 

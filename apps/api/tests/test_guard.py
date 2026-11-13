@@ -5,6 +5,7 @@ import json
 import pytest
 
 from app.agents.graph import run_graph
+from app.agents.guard.judge import parse_judge
 from app.agents.guard.rules import check_rules, find_banned, ungrounded_numbers
 from app.agents.state import AgentDeps
 from app.llm.base import LLMError
@@ -133,3 +134,34 @@ async def test_ungrounded_number_in_summary_blocks(deps: AgentDeps, fake_llm: Fa
     assert st["verdict"] == "pass_after_retry"
     assert "9.99%" not in st["answer"]
     assert "ungrounded_number:9.99%" in st["guard_history"][0]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ('{"grounded": false, "is_solicitation": false}', (False, False)),
+        ('{"grounded": "false", "is_solicitation": "false"}', (False, False)),
+        ('{"grounded": "True", "is_solicitation": "no"}', (True, False)),
+        ('{"grounded": 1}', (True, False)),
+    ],
+)
+def test_parse_judge_reads_string_booleans(raw: str, expected: tuple[bool, bool]) -> None:
+    verdict = parse_judge(raw)
+    assert verdict is not None
+    assert (verdict["grounded"], verdict["is_solicitation"]) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ['{"grounded": "maybe"}', '{"grounded": null}', '{"grounded": true, "is_solicitation": []}'],
+)
+def test_parse_judge_rejects_unreadable_values(raw: str) -> None:
+    assert parse_judge(raw) is None
+
+
+async def test_judge_string_false_does_not_pass(deps: AgentDeps, fake_llm: FakeLLM) -> None:
+    verdict = '{"grounded": "false", "is_solicitation": "false", "issues": []}'
+    fake_llm.push("judge", verdict, verdict)
+    st = await run_graph(deps, request_id="t", query="괴리율이 뭐야?")
+    assert st["verdict"] == "blocked"
+    assert any("judge:ungrounded" in rs for rs in st["guard_history"])
