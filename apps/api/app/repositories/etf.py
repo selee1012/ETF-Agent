@@ -4,7 +4,7 @@ from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,6 +64,7 @@ async def search_etfs(
     keyword: str | None = None,
     category: str | None = None,
     category_prefix: str | None = None,
+    unprefixed_ok: Sequence[str] = (),
     underlying_index: str | None = None,
     max_fee: Decimal | None = None,
     min_fee: Decimal | None = None,
@@ -74,6 +75,8 @@ async def search_etfs(
     """ETF 검색·필터(분류, 기초지수, 보수 범위). 키워드는 이름·별칭 trgm 유사도로 정렬.
 
     category_prefix는 분류 앞부분(국내·해외), *_exclusive는 경계값 제외(미만·초과).
+    unprefixed_ok를 주면, 그 접두어들 중 어느 것으로도 시작하지 않는 분류(지역 표기가 없는
+    '부동산'·'원자재' 등)도 category_prefix 조건을 통과시킨다.
     """
     stmt: Select[tuple[EtfMaster]] = select(EtfMaster)
     if category:
@@ -81,7 +84,10 @@ async def search_etfs(
     if underlying_index:
         stmt = stmt.where(EtfMaster.underlying_index.ilike(f"%{underlying_index}%"))
     if category_prefix:
-        stmt = stmt.where(EtfMaster.category.like(f"{category_prefix}%"))
+        cond = EtfMaster.category.like(f"{category_prefix}%")
+        if unprefixed_ok:
+            cond = or_(cond, and_(*(EtfMaster.category.not_like(f"{x}%") for x in unprefixed_ok)))
+        stmt = stmt.where(cond)
     fee = EtfMaster.total_expense_ratio
     if max_fee is not None:
         stmt = stmt.where(fee < max_fee if max_fee_exclusive else fee <= max_fee)

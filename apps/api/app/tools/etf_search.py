@@ -50,6 +50,9 @@ _CATEGORY = [
 ]
 
 
+REGIONS = ("국내", "해외")
+
+
 @dataclass(slots=True)
 class EtfFilters:
     category: str | None = None
@@ -118,10 +121,13 @@ def parse_filters(text: str, known_indexes: list[str]) -> EtfFilters:
 
 async def search(session: AsyncSession, f: EtfFilters, limit: int = 10) -> list[EtfMaster]:
     # 지역도 DB에서 거른다(LIMIT 뒤에 거르면 앞쪽 N건 밖의 일치 상품이 빠진다).
+    # 지역은 분류 앞머리('국내 주식 …')로만 알 수 있다. '부동산'·'원자재'처럼 지역 표기가 없는
+    # 분류를 함께 물으면('국내 리츠') 지역을 확인할 수 없으므로 그 분류의 상품은 빼지 않는다.
     return await etf_repo.search_etfs(
         session,
         category=f.category,
         category_prefix=f.region,
+        unprefixed_ok=REGIONS if f.region and f.category else (),
         underlying_index=f.underlying_index,
         max_fee=f.max_fee,
         min_fee=f.min_fee,

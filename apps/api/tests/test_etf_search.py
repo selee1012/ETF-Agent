@@ -64,3 +64,23 @@ async def test_region_is_filtered_before_limit(deps: AgentDeps) -> None:
         rows = await search(s, EtfFilters(region="국내"), limit=3)
     assert len(rows) == 3  # 지역 밖 상품이 LIMIT 자리를 차지하지 않는다
     assert all(e.category.startswith("국내") for e in rows)
+
+
+@pytest.mark.parametrize(
+    ("text", "ticker"),
+    [("국내 리츠 ETF 목록", "900170"), ("미국 원자재 ETF 목록", "900130")],
+)
+async def test_region_does_not_hide_categories_without_region(
+    deps: AgentDeps, text: str, ticker: str
+) -> None:
+    f = parse_filters(text, [])
+    assert f.region and f.category
+    async with deps.maker() as s:
+        rows = await search(s, f)
+    assert ticker in [e.ticker for e in rows]  # 분류에 지역 표기가 없어도 0건이 되지 않는다
+
+
+async def test_region_still_separates_categories_that_have_one(deps: AgentDeps) -> None:
+    async with deps.maker() as s:
+        rows = await search(s, parse_filters("해외 채권 ETF 목록", []))
+    assert [e.ticker for e in rows] == ["900100"]  # 국내 채권(900090)은 빠진다
