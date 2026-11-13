@@ -28,28 +28,39 @@ def parse_judge(text: str) -> dict[str, Any] | None:
     }
 
 
+# 판정을 받지 못했다는 사유. 답변을 다시 써도 해결되지 않으므로 그래프가 재생성 없이 안전 답변으로 보낸다.
+UNAVAILABLE = "judge:unavailable"
+UNPARSED = "judge:unparsed"
+UNVERIFIED = frozenset({UNAVAILABLE, UNPARSED})
+
+
 async def judge(
     llm: LLMClient, *, model: str, answer: str, evidence: list[str]
 ) -> tuple[list[str], dict[str, Any] | None]:
-    """(실패 사유 목록, 판정 JSON). 판정이 불가능하면 사유에 judge_unparsed/judge_unavailable만 남기고 통과."""
+    """(실패 사유 목록, 판정 JSON).
+
+    판정을 받지 못하면 통과시키지 않는다(검증되지 않은 답변을 내보내지 않는다).
+    - 호출 실패: judge:unavailable (재시도는 LLM 어댑터가 이미 했다)
+    - 응답 해석 실패: 한 번 더 물어보고, 그래도 안 되면 judge:unparsed
+    """
     ev = "\n\n".join(evidence)[:6000]
-    try:
-        resp = await llm.complete(
-            [
-                ChatMessage("system", load_text("guard/judge.md")),
-                ChatMessage("user", f"[근거]\n{ev}\n\n[답변]\n{answer}"),
-            ],
-            task="judge",
-            model=model,
-            json_mode=True,
-            temperature=0,
-            max_tokens=300,
-        )
-    except LLMError:
-        return ["note:judge_unavailable"], None
-    verdict = parse_judge(resp.text)
+    messages = [
+        ChatMessage("system", load_text("guard/judge.md")),
+        ChatMessage("user", f"[근거]\n{ev}\n\n[답변]\n{answer}"),
+    ]
+    verdict = None
+    for _ in range(2):
+        try:
+            resp = await llm.complete(
+                messages, task="judge", model=model, json_mode=True, temperature=0, max_tokens=300
+            )
+        except LLMError:
+            return [UNAVAILABLE], None
+        verdict = parse_judge(resp.text)
+        if verdict is not None:
+            break
     if verdict is None:
-        return ["note:judge_unparsed"], None
+        return [UNPARSED], None
     reasons = []
     if not verdict["grounded"]:
         reasons.append("judge:ungrounded")

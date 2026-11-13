@@ -7,6 +7,7 @@ import pytest
 from app.agents.graph import run_graph
 from app.agents.guard.rules import check_rules, find_banned, ungrounded_numbers
 from app.agents.state import AgentDeps
+from app.llm.base import LLMError
 from app.llm.fake import FakeLLM
 
 
@@ -92,11 +93,37 @@ async def test_judge_model_blocks_solicitation(deps: AgentDeps, fake_llm: FakeLL
     assert any("judge:solicitation" in rs for rs in st["guard_history"])
 
 
-async def test_judge_unparsed_does_not_block(deps: AgentDeps, fake_llm: FakeLLM) -> None:
-    fake_llm.push("judge", "판정 불가")
+async def test_judge_unparsed_is_asked_again(deps: AgentDeps, fake_llm: FakeLLM) -> None:
+    fake_llm.push("judge", "판정 불가")  # 두 번째 응답은 기본값(정상 판정)
     st = await run_graph(deps, request_id="t", query="괴리율이 뭐야?")
+    assert fake_llm.count("judge") == 2
     assert st["verdict"] == "pass"
-    assert "note:judge_unparsed" in st["guard_history"][0]
+    assert st["guard_history"] == [[]]
+
+
+async def test_judge_unparsed_twice_gives_safe_answer(deps: AgentDeps, fake_llm: FakeLLM) -> None:
+    fake_llm.push("judge", "판정 불가", "여전히 판정 불가")
+    st = await run_graph(deps, request_id="t", query="괴리율이 뭐야?")
+    assert st["verdict"] == "llm_unavailable"
+    assert st["guard_history"] == [["judge:unparsed"]]
+    assert fake_llm.count("answer") == 1  # 답변을 다시 쓰지 않는다
+    assert "문의" in st["answer"] and not st["sources"]
+
+
+async def test_judge_unavailable_gives_safe_answer_and_is_not_cached(
+    deps: AgentDeps, fake_llm: FakeLLM
+) -> None:
+    fake_llm.push("judge", LLMError("down"))
+    st = await run_graph(deps, request_id="t", query="괴리율이 뭐야?")
+    assert st["verdict"] == "llm_unavailable"
+    assert st["guard_history"] == [["judge:unavailable"]]
+    assert fake_llm.count("answer") == 1 and fake_llm.count("judge") == 1
+    assert "문의" in st["answer"]
+
+    # 검증하지 못한 답변은 캐시에 남지 않는다: 검증 모델이 돌아오면 새로 작성해 통과한다
+    st = await run_graph(deps, request_id="t2", query="괴리율이 뭐야?")
+    assert st["verdict"] == "pass"
+    assert fake_llm.count("answer") == 2
 
 
 async def test_ungrounded_number_in_summary_blocks(deps: AgentDeps, fake_llm: FakeLLM) -> None:

@@ -27,6 +27,7 @@ from app import cache
 from app.agents import compose as composer
 from app.agents import disclosure, etf_info, faq
 from app.agents.guard import run_guard
+from app.agents.guard.judge import UNVERIFIED
 from app.agents.guard.templates import high_risk_answer, safe_answer, template_answer
 from app.agents.orchestrator import classify
 from app.agents.orchestrator.rules import is_blocked, is_domain, is_followup_info
@@ -240,6 +241,9 @@ async def guard_node(state: GraphState, config: RunnableConfig) -> dict[str, Any
                 generated=True,
             )
         return {"verdict": verdict, "guard_history": [res_reasons]}
+    if UNVERIFIED.intersection(res_reasons):
+        # 검증 모델이 판정하지 못했다. 답변을 다시 써도 같으므로 재생성 없이 안전 답변으로 보낸다.
+        return {"verdict": Verdict.LLM_UNAVAILABLE, "guard_history": [res_reasons]}
     return {"verdict": "", "retry_feedback": res_reasons, "guard_history": [res_reasons]}
 
 
