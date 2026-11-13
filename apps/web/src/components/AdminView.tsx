@@ -12,8 +12,27 @@ import {
   type Trace,
 } from '../lib/api'
 
-const INTENTS = ['', 'etf_info', 'faq', 'disclosure', 'high_risk', 'recommendation', 'out_of_scope', 'blocked']
-const VERDICTS = ['', 'pass', 'pass_after_retry', 'blocked', 'template', 'llm_unavailable', 'error']
+const INTENTS = [
+  '',
+  'etf_info',
+  'faq',
+  'disclosure',
+  'high_risk',
+  'recommendation',
+  'out_of_scope',
+  'blocked',
+]
+const VERDICTS = [
+  '',
+  'pass',
+  'pass_after_retry',
+  'blocked',
+  'template',
+  'llm_unavailable',
+  'cancelled',
+  'error',
+]
+const PAGE_SIZE = 50 // adminTraces의 limit과 같다
 type Tab = 'traces' | 'feedback' | 'documents'
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleString('ko-KR', { hour12: false })
@@ -21,17 +40,18 @@ const fmtTime = (iso: string) => new Date(iso).toLocaleString('ko-KR', { hour12:
 function Traces() {
   const [intent, setIntent] = useState('')
   const [verdict, setVerdict] = useState('')
+  const [offset, setOffset] = useState(0)
   const [data, setData] = useState<{ items: Trace[]; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(() => {
-    adminTraces({ intent, verdict })
+    adminTraces({ intent, verdict, offset })
       .then((d) => {
         setData(d)
         setError(null)
       })
       .catch((e) => setError(e.message))
-  }, [intent, verdict])
+  }, [intent, verdict, offset])
 
   useEffect(() => {
     load()
@@ -42,7 +62,13 @@ function Traces() {
       <div className="filters">
         <label>
           의도
-          <select value={intent} onChange={(e) => setIntent(e.target.value)}>
+          <select
+            value={intent}
+            onChange={(e) => {
+              setIntent(e.target.value)
+              setOffset(0)
+            }}
+          >
             {INTENTS.map((i) => (
               <option key={i} value={i}>
                 {i || '전체'}
@@ -52,7 +78,13 @@ function Traces() {
         </label>
         <label>
           가드 판정
-          <select value={verdict} onChange={(e) => setVerdict(e.target.value)}>
+          <select
+            value={verdict}
+            onChange={(e) => {
+              setVerdict(e.target.value)
+              setOffset(0)
+            }}
+          >
             {VERDICTS.map((v) => (
               <option key={v} value={v}>
                 {v || '전체'}
@@ -63,7 +95,29 @@ function Traces() {
         <button type="button" className="ghost" onClick={load}>
           새로고침
         </button>
-        {data && <span className="muted">총 {data.total}건</span>}
+        {data && (
+          <span className="muted">
+            총 {data.total}건
+            {data.total > 0 &&
+              ` 중 ${offset + 1}–${Math.min(offset + data.items.length, data.total)}`}
+          </span>
+        )}
+        <button
+          type="button"
+          className="ghost"
+          disabled={offset === 0}
+          onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+        >
+          이전
+        </button>
+        <button
+          type="button"
+          className="ghost"
+          disabled={!data || offset + PAGE_SIZE >= data.total}
+          onClick={() => setOffset(offset + PAGE_SIZE)}
+        >
+          다음
+        </button>
       </div>
       {error && <p className="error">{error}</p>}
       <div className="table-wrap">
