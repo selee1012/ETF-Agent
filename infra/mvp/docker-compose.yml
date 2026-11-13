@@ -31,6 +31,8 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 3
+    # 종료·재시작 때 진행 중인 답변의 저장(스트림 대기 20초 + 저장 대기 15초)이 끝날 시간을 준다.
+    stop_grace_period: 45s
     restart: unless-stopped
 
   cloudflared:

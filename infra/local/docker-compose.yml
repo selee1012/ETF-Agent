@@ -54,6 +54,10 @@ services:
       - --reload-dir=/workspace/prompts
       - --reload-include=*.yaml
       - --reload-include=*.md
+      - --timeout-graceful-shutdown=20
+    # 종료·재시작 때 진행 중인 답변의 저장(스트림 대기 20초 + 저장 대기 15초)이 끝날 시간을 준다.
+    # 기본 10초면 답변 생성 중에 SIGKILL돼 질문만 저장된 대화가 남는다.
+    stop_grace_period: 45s
     volumes:
       - ../..:/workspace
       - storage:/data/storage
