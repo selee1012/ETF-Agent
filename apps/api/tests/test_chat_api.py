@@ -88,6 +88,19 @@ async def test_multiturn_history_and_conversation(client: AsyncClient, user_head
     assert (await client.get(f"/history/{conv_id}", headers=other_h)).status_code == 404
 
 
+async def test_new_message_moves_conversation_to_top(
+    client: AsyncClient, user_headers: dict
+) -> None:
+    old = (await chat(client, user_headers, "분배금이 뭐야?"))[-1][1]["conversation_id"]
+    new = (await chat(client, user_headers, "괴리율이 뭐야?"))[-1][1]["conversation_id"]
+    ids = [c["id"] for c in (await client.get("/history", headers=user_headers)).json()]
+    assert ids == [new, old]
+
+    await chat(client, user_headers, "더 알려줘", conversation_id=old)
+    convs = (await client.get("/history", headers=user_headers)).json()
+    assert [c["id"] for c in convs] == [old, new]  # 메시지를 보낸 예전 대화가 맨 위로
+
+
 async def test_feedback_like_and_correction(client: AsyncClient, user_headers: dict) -> None:
     events = await chat(client, user_headers, "괴리율이 뭐야?")
     mid = events[-1][1]["message_id"]

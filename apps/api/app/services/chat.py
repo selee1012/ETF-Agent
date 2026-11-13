@@ -153,7 +153,7 @@ async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> A
                 sources=sources,
                 meta={"tickers": entities, "level": level.value},
             )
-            await conv_repo.touch_conversation(session, conv)
+            await conv_repo.touch_conversation(session, conv.id)
             await session.commit()
             message_id = str(msg.id)
     except Exception:

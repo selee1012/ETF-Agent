@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -92,9 +92,15 @@ async def add_message(
     return msg
 
 
-async def touch_conversation(session: AsyncSession, conv: Conversation) -> None:
-    conv.updated_at = func.now()
-    await session.flush()
+async def touch_conversation(session: AsyncSession, conversation_id: uuid.UUID) -> None:
+    """대화 목록 정렬 기준(updated_at)을 지금으로 올린다.
+
+    ID로 직접 UPDATE 한다. 다른 세션에서 읽은 Conversation 객체는 이 세션에 붙어 있지 않아
+    속성만 바꿔서는 저장되지 않는다.
+    """
+    await session.execute(
+        update(Conversation).where(Conversation.id == conversation_id).values(updated_at=func.now())
+    )
 
 
 async def list_conversations(session: AsyncSession, user_id: uuid.UUID) -> list[Conversation]:
