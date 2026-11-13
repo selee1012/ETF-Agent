@@ -131,7 +131,35 @@ export function Markdown({ text }: { text: string }) {
     if (first) {
       const ordered = /\d/.test(first[2])
       const items: ListItem[] = []
-      for (let m = LIST_ITEM.exec(lines[i] ?? ''); m; m = LIST_ITEM.exec(lines[i] ?? '')) {
+      while (i < lines.length) {
+        const cur = lines[i]
+        const m = LIST_ITEM.exec(cur)
+        if (!m) {
+          // 항목 사이 빈 줄: 뒤에 같은 목록의 항목이 이어지면 건너뛴다. 여기서 끊으면 항목마다
+          // 새 목록이 돼 번호가 전부 1로 보인다.
+          if (!cur.trim()) {
+            let j = i + 1
+            while (j < lines.length && !lines[j].trim()) j++
+            const next = LIST_ITEM.exec(lines[j] ?? '')
+            if (next && (next[1].length > 0 || /\d/.test(next[2]) === ordered)) {
+              i = j
+              continue
+            }
+            break
+          }
+          // 들여쓴 이어지는 문장은 직전 항목에 붙인다
+          if (/^\s{2,}\S/.test(cur) && items.length) {
+            const parent = items[items.length - 1]
+            if (parent.nested?.items.length) {
+              parent.nested.items[parent.nested.items.length - 1] += ` ${cur.trim()}`
+            } else {
+              parent.text += ` ${cur.trim()}`
+            }
+            i++
+            continue
+          }
+          break
+        }
         const isOrdered = /\d/.test(m[2])
         if (m[1].length > 0 && items.length) {
           const parent = items[items.length - 1]
