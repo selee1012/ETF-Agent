@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from app.agents import compose as composer
 from app.agents.graph import run_graph
 from app.agents.guard.judge import parse_judge
 from app.agents.guard.rules import check_rules, find_banned, ungrounded_numbers
@@ -172,3 +173,30 @@ async def test_judge_string_false_does_not_pass(deps: AgentDeps, fake_llm: FakeL
     st = await run_graph(deps, request_id="t", query="괴리율이 뭐야?")
     assert st["verdict"] == "blocked"
     assert any("judge:ungrounded" in rs for rs in st["guard_history"])
+
+
+def _drop_disclaimer_text(monkeypatch: pytest.MonkeyPatch, missing_id: str) -> None:
+    """고지 설정에서 문구 하나가 빠진 상황(id 오타·삭제)을 만든다."""
+    texts = {k: v for k, v in composer.disclaimer_texts().items() if k != missing_id}
+    monkeypatch.setattr(composer, "disclaimer_texts", lambda: texts)
+
+
+async def test_required_disclaimer_missing_from_answer_is_blocked(
+    deps: AgentDeps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _drop_disclaimer_text(monkeypatch, "principal_loss")
+    st = await run_graph(deps, request_id="t", query="샘플 코스피200 괴리율 알려줘")
+    assert st["verdict"] == "blocked"
+    assert "missing_disclaimer:principal_loss" in st["guard_history"][0]
+    assert "문의" in st["answer"]
+
+
+async def test_cached_answer_is_rechecked_for_disclaimers(
+    deps: AgentDeps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = await run_graph(deps, request_id="t", query="추적오차가 뭐야?")
+    assert first["verdict"] == "pass"
+    _drop_disclaimer_text(monkeypatch, "general")
+    second = await run_graph(deps, request_id="t2", query="추적오차가 뭐야?")
+    assert second["verdict"] == "blocked"
+    assert "missing_disclaimer:general" in second["guard_history"][0]

@@ -213,16 +213,20 @@ async def guard_node(state: GraphState, config: RunnableConfig) -> dict[str, Any
     if state.get("verdict") == Verdict.LLM_UNAVAILABLE:
         return {"guard_history": [["llm_unavailable"]]}
     await deps.emit("guard", "답변을 점검하는 중")
+    # 필수 고지는 '붙이기로 한 id'가 아니라 완성된 답변에 실제로 들어간 문구로 검사한다.
+    required = composer.required_disclaimers(state["intents"])
+    included = composer.included_disclaimers(state.get("answer") or "")
     if state.get("cached"):
-        res_reasons, passed = ["note:cache_hit"], True
+        # 캐시 답변은 본문 검증을 이미 통과했다. 고지는 지금 설정으로 다시 붙였으므로 다시 본다.
+        missing = [f"missing_disclaimer:{d}" for d in required if d not in included]
+        res_reasons, passed = (missing, False) if missing else (["note:cache_hit"], True)
     else:
-        ids = state.get("disclaimer_ids") or []
         g = await run_guard(
             deps,
             body=state["body"],
             intents=state["intents"],
-            included_disclaimers=ids,
-            required_disclaimers=composer.required_disclaimers(state["intents"]),
+            included_disclaimers=included,
+            required_disclaimers=required,
             evidence=state.get("evidence") or [],
             generated=bool(state.get("generated")),
             grounded=state.get("grounded", True),

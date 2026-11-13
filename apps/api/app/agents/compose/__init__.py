@@ -69,6 +69,11 @@ def render_disclaimers(ids: list[str]) -> str:
     return f"{DISCLAIMER_HEADER}\n" + "\n".join(lines) if lines else ""
 
 
+def included_disclaimers(answer: str) -> list[str]:
+    """완성된 답변에 실제로 들어 있는 고지 id. 가드가 필수 고지 누락을 이 값으로 검사한다."""
+    return [i for i, text in disclaimer_texts().items() if text in answer]
+
+
 def full_answer(body: str, disclaimer_ids: list[str]) -> str:
     block = render_disclaimers(disclaimer_ids)
     return f"{body}\n\n{block}" if block else body
