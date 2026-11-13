@@ -50,6 +50,13 @@ def test_ungrounded_numbers() -> None:
     assert ungrounded_numbers("2026-11-11 기준 900010 [1]", evidence) == []
 
 
+def test_numbers_are_compared_by_value_not_by_notation() -> None:
+    evidence = ["| 총보수 | 연 0.0500% |\n| NAV | 36,180.00원 |\n| 괴리율 | 0.20% |"]
+    assert ungrounded_numbers("총보수는 0.05%, NAV는 36,180원, 괴리율 0.2%입니다.", evidence) == []
+    assert ungrounded_numbers("총보수는 0.5%입니다.", evidence) == ["0.5%"]
+    assert ungrounded_numbers("NAV는 3,618원입니다.", evidence) == ["3618원"]
+
+
 def test_missing_disclaimer_and_pii() -> None:
     reasons = check_rules(
         "연락처 010-1234-5678로 주세요",

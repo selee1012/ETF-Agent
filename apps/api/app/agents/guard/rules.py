@@ -39,6 +39,13 @@ def _norm_num(int_part: str, frac: str | None, unit: str | None) -> str:
     return f"{n}{unit or ''}"
 
 
+def _canon(int_part: str, frac: str | None) -> str:
+    """표기만 다른 같은 값을 하나로: 쉼표·앞자리 0·소수 끝자리 0을 뗀다(0.0500 → 0.05, 36,180.00 → 36180)."""
+    n = int_part.replace(",", "").lstrip("0") or "0"
+    f = (frac or "").rstrip("0")
+    return f"{n}.{f}" if f else n
+
+
 def extract_numbers(text: str) -> list[str]:
     cfg = _config()["numbers"]
     pat = re.compile(cfg["pattern"])
@@ -55,7 +62,10 @@ def extract_numbers(text: str) -> list[str]:
 
 
 def ungrounded_numbers(answer: str, evidence: list[str]) -> list[str]:
-    """답변 수치 중 근거 텍스트에 없는 것. 단위 없이 숫자만 일치해도 근거로 인정한다."""
+    """답변 수치 중 근거 텍스트에 없는 것. 단위 없이 숫자만 일치해도 근거로 인정한다.
+
+    값으로 비교한다: 근거가 '0.0500%'·'36,180.00원'이면 답변의 '0.05%'·'36,180원'도 근거가 있다.
+    """
     cfg = _config()["numbers"]
     if not cfg.get("enabled", True):
         return []
@@ -63,11 +73,11 @@ def ungrounded_numbers(answer: str, evidence: list[str]) -> list[str]:
     ev_text = " ".join(evidence)
     ev_nums = set()
     for m in re.finditer(r"(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?", ev_text):
-        ev_nums.add(_norm_num(m.group(1), m.group(2), None))
+        ev_nums.add(_canon(m.group(1), m.group(2)))
     missing = []
     for n in extract_numbers(answer):
-        bare = re.sub(r"[^\d.]", "", n)
-        if n in allow or bare in ev_nums:
+        int_part, _, frac = re.sub(r"[^\d.]", "", n).partition(".")
+        if n in allow or _canon(int_part, frac) in ev_nums:
             continue
         missing.append(n)
     return list(dict.fromkeys(missing))
