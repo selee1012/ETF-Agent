@@ -1,5 +1,5 @@
 // 운영 화면(P1-FE-03): 트레이스(마스킹 정보만)·피드백 조회, 문서 업로드 → ingest → 검색 확인
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   adminDocuments,
   adminFeedback,
@@ -43,14 +43,20 @@ function Traces() {
   const [offset, setOffset] = useState(0)
   const [data, setData] = useState<{ items: Trace[]; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const loadSeq = useRef(0)
 
   const load = useCallback(() => {
+    // 페이지·필터를 빠르게 바꾸면 응답이 뒤섞여 올 수 있다. 가장 마지막 요청의 응답만 쓴다.
+    const seq = ++loadSeq.current
     adminTraces({ intent, verdict, offset })
       .then((d) => {
+        if (seq !== loadSeq.current) return
         setData(d)
         setError(null)
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => {
+        if (seq === loadSeq.current) setError(e.message)
+      })
   }, [intent, verdict, offset])
 
   useEffect(() => {
