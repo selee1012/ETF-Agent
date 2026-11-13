@@ -9,11 +9,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.repositories import etf as etf_repo
 from app.repositories.models import EtfMaster
 
-# 보수 조건: 숫자 뒤에 %(퍼센트·프로)나 비교어가 있어야 한다.
+# 보수 조건: '보수|수수료|비용' 뒤에 오는 숫자 중 %(퍼센트·프로)나 비교어가 붙은 것만 조건이다.
 # 없으면 '보수 낮은 순으로 3개'의 3처럼 보수와 무관한 숫자다.
-_FEE_RE = re.compile(
-    r"(?:보수|수수료|비용)[^\d]{0,12}(\d+(?:\.\d+)?)\s*(%|퍼센트|프로)?\s*(이하|미만|이내|이상|초과)?"
+_FEE_KEY = re.compile(r"보수|수수료|비용")
+_FEE_NUM = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(%|퍼센트|프로)?\s*(?:보다\s*)?"
+    r"(이하|이내|이상|미만|초과|넘|높[은게아]|큰|많[은이]|낮[은게아]|작[은게아]|적[은게]|밑|아래)?"
 )
+_FEE_FIRST_GAP = 12  # 보수 표현과 첫 숫자 사이
+_FEE_NEXT_GAP = 6  # 범위 조건('0.1% 이상 0.3% 이하')의 두 숫자 사이
+
+
+def _fee_op(word: str | None) -> tuple[str, bool]:
+    """비교어 → (max|min, 경계 제외 여부). 비교어 없이 %만 있으면 '이하'로 본다."""
+    if word is None or word in ("이하", "이내"):
+        return "max", False
+    if word == "이상":
+        return "min", False
+    if word in ("미만", "밑", "아래") or word[0] in "낮작적":
+        return "max", True
+    return "min", True  # 초과·넘·높·큰·많
+
+
 # 질문 표현 → etf_master.category 부분 문자열
 _CATEGORY = [
     ("레버리지", "레버리지"),
@@ -44,8 +61,11 @@ class EtfFilters:
     min_exclusive: bool = False  # 초과(경계값 제외)
 
     def is_empty(self) -> bool:
-        return not any(
-            (self.category, self.region, self.underlying_index, self.max_fee, self.min_fee)
+        # 보수 0도 조건이다(Decimal(0)은 거짓이라 값의 참거짓으로 보면 안 된다).
+        return (
+            not any((self.category, self.region, self.underlying_index))
+            and self.max_fee is None
+            and self.min_fee is None
         )
 
     def describe(self) -> str:
@@ -66,16 +86,19 @@ class EtfFilters:
 def parse_filters(text: str, known_indexes: list[str]) -> EtfFilters:
     f = EtfFilters()
     low = text.lower()
-    for m in _FEE_RE.finditer(text):
-        unit, op = m.group(2), m.group(3)
-        if not (unit or op):
-            continue
-        value = Decimal(m.group(1))
-        if op in ("이상", "초과"):
-            f.min_fee, f.min_exclusive = value, op == "초과"
-        else:
-            f.max_fee, f.max_exclusive = value, op == "미만"
-        break
+    if key := _FEE_KEY.search(text):
+        pos, gap = key.end(), _FEE_FIRST_GAP
+        for m in _FEE_NUM.finditer(text, pos):
+            unit, op = m.group(2), m.group(3)
+            if m.start() - pos > gap or not (unit or op):
+                break
+            side, exclusive = _fee_op(op)
+            value = Decimal(m.group(1))
+            if side == "max":
+                f.max_fee, f.max_exclusive = value, exclusive
+            else:
+                f.min_fee, f.min_exclusive = value, exclusive
+            pos, gap = m.end(), _FEE_NEXT_GAP
     for word, cat in _CATEGORY:
         if word in low:
             f.category = cat

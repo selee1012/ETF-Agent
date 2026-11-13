@@ -16,6 +16,10 @@ from app.tools.etf_search import EtfFilters, parse_filters, search
         ("보수 0.5 이상인 ETF", ("min", "0.5", False), "총보수 0.5% 이상"),
         ("수수료 0.5% 초과 ETF", ("min", "0.5", True), "총보수 0.5% 초과"),
         ("보수 0.3프로 ETF", ("max", "0.3", False), "총보수 0.3% 이하"),
+        ("보수 0.3% 넘는 ETF 목록", ("min", "0.3", True), "총보수 0.3% 초과"),
+        ("보수가 0.5%보다 높은 채권 ETF", ("min", "0.5", True), "분류 '채권', 총보수 0.5% 초과"),
+        ("수수료가 0.2%보다 낮은 ETF", ("max", "0.2", True), "총보수 0.2% 미만"),
+        ("보수 0% 이하 ETF", ("max", "0", False), "총보수 0% 이하"),
     ],
 )
 def test_fee_condition(text: str, expected: tuple[str, str, bool], described: str) -> None:
@@ -26,6 +30,17 @@ def test_fee_condition(text: str, expected: tuple[str, str, bool], described: st
     else:
         assert (f.min_fee, f.min_exclusive, f.max_fee) == (Decimal(value), exclusive, None)
     assert f.describe() == described
+
+
+def test_fee_range_keeps_both_bounds() -> None:
+    f = parse_filters("수수료 0.1% 이상 0.3% 이하 ETF", [])
+    assert (f.min_fee, f.max_fee) == (Decimal("0.1"), Decimal("0.3"))
+    assert not f.min_exclusive and not f.max_exclusive
+    assert not f.is_empty()
+
+
+def test_zero_fee_bound_is_a_condition() -> None:
+    assert not EtfFilters(max_fee=Decimal(0)).is_empty()
 
 
 @pytest.mark.parametrize("text", ["보수 낮은 순으로 3개 찾아줘", "수수료 싼 ETF 5개 알려줘"])
