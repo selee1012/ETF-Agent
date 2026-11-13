@@ -62,6 +62,22 @@ async def test_etf_info_filter_search(deps: AgentDeps) -> None:
     assert "샘플 골드선물" not in st["answer"]  # 보수 0.68%
 
 
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("총보수 0.001% 이하 ETF 찾아줘", "조건(총보수 0.001% 이하)에 맞는 ETF가 없습니다."),
+        ("ETF 목록 찾아줘", "'총보수 0.1% 이하 해외 주식 ETF'처럼 조건을 말씀해 주세요."),
+    ],
+)
+async def test_no_result_notice_with_numbers_is_not_blocked(
+    deps: AgentDeps, query: str, expected: str
+) -> None:
+    st = await ask(deps, query)
+    assert st["intents"] == ["etf_info"]
+    assert st["verdict"] == "pass"  # 안내 문구 속 수치가 '근거 없는 수치'로 반려되지 않는다
+    assert expected in st["answer"]
+
+
 async def test_faq_answers_with_sources(deps: AgentDeps) -> None:
     st = await ask(deps, "괴리율이 뭐야?", level="beginner")
     assert st["intents"] == ["faq"]

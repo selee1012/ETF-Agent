@@ -155,11 +155,13 @@ async def synthesize(state: GraphState, deps: AgentDeps) -> Composed:
 
     found = [r for r in ok if r.found]
     docs = faq_result is not None and faq_result.ok and faq_result.found
+    # 자료를 못 찾았을 때의 안내 문구('조건(총보수 0.01% 이하)에 맞는 ETF가 없습니다')는 우리가 쓴
+    # 고정 문장이다. 그 안의 수치가 '근거 없는 수치'로 반려되지 않도록 근거에 넣는다.
+    notices = [r.content for r in ok if not r.found and r.content]
     if not found:
         if intents == [Intent.FAQ]:
             return await _no_evidence(state, deps)
-        body = "\n\n".join(r.content for r in ok if r.content) or faq.NO_ANSWER
-        return Composed(body=body)
+        return Composed(body="\n\n".join(notices) or faq.NO_ANSWER, evidence=notices)
 
     # 재생성 때 표·목록만 있는 답변은 설명 문장 없이 낸다
     prose = ""
@@ -188,7 +190,7 @@ async def synthesize(state: GraphState, deps: AgentDeps) -> Composed:
     return Composed(
         body="\n\n".join(parts),
         sources=_dedupe(sources),
-        evidence=[e for r in found for e in r.evidence],
+        evidence=[e for r in found for e in r.evidence] + notices,
         generated=bool(prose),
         cache_key=faq_result.cache_key if single_faq and faq_result is not None and prose else None,
     )
