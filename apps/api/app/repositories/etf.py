@@ -63,21 +63,30 @@ async def search_etfs(
     *,
     keyword: str | None = None,
     category: str | None = None,
+    category_prefix: str | None = None,
     underlying_index: str | None = None,
     max_fee: Decimal | None = None,
     min_fee: Decimal | None = None,
+    max_fee_exclusive: bool = False,
+    min_fee_exclusive: bool = False,
     limit: int = 10,
 ) -> list[EtfMaster]:
-    """ETF 검색·필터(분류, 기초지수, 보수 범위). 키워드는 이름·별칭 trgm 유사도로 정렬."""
+    """ETF 검색·필터(분류, 기초지수, 보수 범위). 키워드는 이름·별칭 trgm 유사도로 정렬.
+
+    category_prefix는 분류 앞부분(국내·해외), *_exclusive는 경계값 제외(미만·초과).
+    """
     stmt: Select[tuple[EtfMaster]] = select(EtfMaster)
     if category:
         stmt = stmt.where(EtfMaster.category.ilike(f"%{category}%"))
     if underlying_index:
         stmt = stmt.where(EtfMaster.underlying_index.ilike(f"%{underlying_index}%"))
+    if category_prefix:
+        stmt = stmt.where(EtfMaster.category.like(f"{category_prefix}%"))
+    fee = EtfMaster.total_expense_ratio
     if max_fee is not None:
-        stmt = stmt.where(EtfMaster.total_expense_ratio <= max_fee)
+        stmt = stmt.where(fee < max_fee if max_fee_exclusive else fee <= max_fee)
     if min_fee is not None:
-        stmt = stmt.where(EtfMaster.total_expense_ratio >= min_fee)
+        stmt = stmt.where(fee > min_fee if min_fee_exclusive else fee >= min_fee)
     if keyword:
         sim = func.greatest(
             func.similarity(EtfMaster.name, keyword), func.similarity(EtfMaster.alias_text, keyword)
