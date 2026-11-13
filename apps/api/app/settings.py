@@ -30,8 +30,8 @@ class LogLevel(StrEnum):
 
 
 class LLMProvider(StrEnum):
-    OPENAI_COMPAT = "openai_compat"  # OpenAI API·vLLM(AWS 자체 호스팅) 등 OpenAI 호환 서버
-    BEDROCK = "bedrock"  # AWS Bedrock(고도화 버전 주 모델). LLM_MODEL·EMBEDDING_MODEL에 모델 ID
+    OPENAI_COMPAT = "openai_compat"  # OpenAI API·Azure OpenAI·자체 호스팅 vLLM 등 OpenAI 호환 서버
+    BEDROCK = "bedrock"  # AWS Bedrock(선택지로 남김, 기본 경로는 Azure). LLM_MODEL·EMBEDDING_MODEL에 모델 ID
     FAKE = "fake"  # 테스트·키 없는 환경
 
 
@@ -43,7 +43,7 @@ class FallbackProvider(StrEnum):
 class AuthProvider(StrEnum):
     LOCAL = "local"  # 개발용 dev-login JWT
     SUPABASE = "supabase"  # 스텁
-    COGNITO = "cognito"  # 스텁
+    ENTRA = "entra"  # 스텁(Microsoft Entra External ID)
 
 
 class AdminAuth(StrEnum):
@@ -54,7 +54,7 @@ class AdminAuth(StrEnum):
 class StorageProvider(StrEnum):
     LOCAL = "local"
     SUPABASE = "supabase"  # 스텁
-    S3 = "s3"  # 스텁
+    AZURE_BLOB = "azure_blob"  # 스텁(Azure Blob Storage)
 
 
 class Tracer(StrEnum):
@@ -97,9 +97,9 @@ class Settings(BaseSettings):
     supabase_url: str | None = None
     supabase_jwks_url: str | None = None
     supabase_jwt_secret: SecretStr | None = None
-    # Cognito (스텁에서 사용 예정)
-    cognito_user_pool_id: str | None = None
-    cognito_region: str = "ap-northeast-2"
+    # Microsoft Entra External ID (스텁에서 사용 예정)
+    entra_tenant_id: str | None = None
+    entra_client_id: str | None = None
     # Cloudflare Access (스텁에서 사용 예정)
     cf_access_team_domain: str | None = None
     cf_access_aud: str | None = None

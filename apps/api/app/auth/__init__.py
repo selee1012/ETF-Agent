@@ -18,11 +18,11 @@ def build_auth(settings: Settings) -> AuthBackend:
             from app.auth.supabase_jwt import SupabaseJWTAuth
 
             return SupabaseJWTAuth(jwks_url=settings.supabase_jwks_url)
-        case AuthProvider.COGNITO:
-            from app.auth.cognito_jwt import CognitoJWTAuth
+        case AuthProvider.ENTRA:
+            from app.auth.entra_jwt import EntraJWTAuth
 
-            return CognitoJWTAuth(
-                region=settings.cognito_region, user_pool_id=settings.cognito_user_pool_id
+            return EntraJWTAuth(
+                tenant_id=settings.entra_tenant_id, client_id=settings.entra_client_id
             )
 
 

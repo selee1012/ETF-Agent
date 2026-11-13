@@ -1,8 +1,8 @@
 """LLM·임베딩 어댑터. 에이전트는 base.py의 인터페이스만 쓴다(공통 규칙 1).
 
 공급자 선택은 settings.LLM_PROVIDER / EMBEDDING_PROVIDER(Enum)로만 한다(공통 규칙 3).
-- openai_compat: OpenAI API(로컬 기본), AWS 자체 호스팅 vLLM 등 OpenAI 호환 서버
-- bedrock: AWS Bedrock(고도화 버전 주 모델)
+- openai_compat: OpenAI API(로컬 기본), Azure OpenAI(고도화 버전 주 모델), 자체 호스팅 vLLM 등 OpenAI 호환 서버
+- bedrock: AWS Bedrock(선택지로 남김)
 - fake: 테스트·키 없는 환경
 """
 

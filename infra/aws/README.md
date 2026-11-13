@@ -1,4 +1,7 @@
-# 고도화 버전: AWS에서 모델 쓰기
+# (참고) AWS에서 모델 쓰기
+
+> 2026-11-13부터 고도화 버전의 기본 경로는 **Azure**다([`../azure/README.md`](../azure/README.md)).
+> Bedrock 어댑터(`app/llm/bedrock.py`)는 동작하는 선택지로 남겨 두었고, 이 문서는 그 설정 방법이다.
 
 로컬은 OpenAI API(또는 fake)로 개발하고, 고도화·배포 버전은 AWS에서 모델을 쓴다.
 코드 변경 없이 **환경변수만** 바꿔 아래 세 방식 중 하나를 고른다(공통 규칙 3).
@@ -92,5 +95,4 @@ FALLBACK_ALLOWED_INTENTS=faq
 ## 배포 시 함께 바꿀 값
 
 - `APP_ENV=prod` — 이때 `LOCAL_JWT_SECRET`이 없으면 기동하지 않는다.
-- `DATABASE_URL` — RDS/Aurora PostgreSQL(pgvector·pg_trgm 확장 필요).
-- 인증·저장소·트레이서 어댑터(`AUTH_PROVIDER`, `STORAGE_PROVIDER`, `TRACER`)는 루트 README의 확장 지점 참고.
+- `DATABASE_URL`, 인증·저장소 — [`../azure/README.md`](../azure/README.md) 참고(Cognito·S3 스텁은 Entra External ID·Azure Blob으로 바꿨다).

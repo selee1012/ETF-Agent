@@ -1,7 +1,7 @@
 # ETF Agent
 
 ETF 질의응답 AI Agent의 MVP(Phase 1) 모노레포. **로컬 Docker에서 끝까지 돌아가는 상태**가 목표이며,
-나중에 Supabase·Cloudflare·AWS로 옮길 때는 **설정(`.env`)과 어댑터만** 바꾸면 되도록 구성했다.
+나중에 Supabase·Cloudflare·Azure로 옮길 때는 **설정(`.env`)과 어댑터만** 바꾸면 되도록 구성했다.
 
 ```
 질문 → 발화 전처리 → 오케스트레이터(의도 분류 ∥ 문서 검색을 동시에) → 자료 수집(ETF 정보 | 지식·FAQ | 공시, 동시에, LLM 없음)
@@ -29,7 +29,7 @@ ETF 질의응답 AI Agent의 MVP(Phase 1) 모노레포. **로컬 Docker에서 �
 답변 품질을 맞추고 응답 속도를 우선한다. 품질이 부족하면 `LLM_MODEL=gpt-5.4-mini`로 올린다.
 질문과 검색된 문서 일부가 OpenAI로 전송된다는 점에 주의한다.
 
-고도화(AWS Bedrock·자체 호스팅 vLLM) 설정은 [`infra/aws/README.md`](infra/aws/README.md)를 본다.
+고도화(Azure OpenAI·자체 호스팅 vLLM) 설정과 AWS → Azure 대응표는 [`infra/azure/README.md`](infra/azure/README.md)를 본다.
 
 ## 실행 순서
 
@@ -88,7 +88,7 @@ make demo PROVIDER=fake ; make eval PROVIDER=fake
 - ETF 정보·공시·근거 있는 FAQ, 고위험·ETF 추천 템플릿, 금칙 표현·개인정보 룰 가드는 그대로다.
 - 배포(`APP_ENV≠local`)에서는 켤 수 없다(설정 검증에서 기동 실패).
 
-고도화 버전(AWS Bedrock·자체 호스팅 vLLM)은 [`infra/aws/README.md`](infra/aws/README.md)를 본다.
+고도화 버전(Azure OpenAI·자체 호스팅 vLLM)은 [`infra/azure/README.md`](infra/azure/README.md)를 본다.
 
 ### 로컬 .env 예시
 
@@ -154,15 +154,15 @@ LLM_API_KEY=<OpenAI API 키>
 | `DATABASE_URL` | **필수** | `postgresql+asyncpg://…@db:5432/…` |
 | `POSTGRES_USER/PASSWORD/DB/PORT` | `etf`/-/`etf_agent`/`5432` | 로컬 db 컨테이너 |
 | `TEST_DATABASE_URL` | `POSTGRES_*`로 조합 | `make test`. DB 이름 뒤에 `_test`를 붙인 DB를 새로 만든다 |
-| `AUTH_PROVIDER` | `local` | `local` \| `supabase`(스텁) \| `cognito`(스텁) |
+| `AUTH_PROVIDER` | `local` | `local`(자체 발급 JWT) \| `supabase`(스텁) \| `entra`(스텁) |
 | `ADMIN_AUTH` | `local` | `local`(role=admin) \| `cf_access`(스텁) |
 | `LOCAL_JWT_SECRET` | local에서만 임의 생성 | local JWT 서명 키. local 외 환경에서는 필수 |
 | `LOCAL_JWT_TTL_MINUTES` | `720` | |
 | `ADMIN_EMAILS` | `admin@local.test` | dev-login 시 admin 역할 부여 |
 | `SUPABASE_URL` / `SUPABASE_JWKS_URL` / `SUPABASE_JWT_SECRET` | - | [나중] Supabase Auth |
-| `COGNITO_USER_POOL_ID` / `COGNITO_REGION` | - / `ap-northeast-2` | [나중] Cognito |
+| `ENTRA_TENANT_ID` / `ENTRA_CLIENT_ID` | - | [나중] Microsoft Entra External ID(외부 로그인 서비스를 쓸 때만) |
 | `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` | - | [나중] Cloudflare Access |
-| `LLM_PROVIDER` | `openai_compat` | `openai_compat`(OpenAI API·vLLM 등) \| `bedrock` \| `fake` |
+| `LLM_PROVIDER` | `openai_compat` | `openai_compat`(OpenAI API·Azure OpenAI·vLLM 등) \| `bedrock` \| `fake` |
 | `LLM_BASE_URL` | `https://api.openai.com/v1` | OpenAI 호환 `/v1` |
 | `LLM_API_KEY` | - | OpenAI API 키(`.env`·`.env.local`에만), vLLM `--api-key` |
 | `LLM_MODEL` | `gpt-5.4-nano` | 생성 모델(bedrock이면 모델 ID·추론 프로필 ID) |
@@ -177,7 +177,7 @@ LLM_API_KEY=<OpenAI API 키>
 | `BEDROCK_REGION` / `BEDROCK_PROFILE` | `ap-northeast-2` / - | Bedrock 리전, (로컬 시험용) `~/.aws` 프로필. 자격 증명은 boto3 기본 체인 |
 | `FALLBACK_PROVIDER` | `none` | `none` \| `bedrock` |
 | `BEDROCK_MODEL_ID` / `FALLBACK_ALLOWED_INTENTS` | - / `faq` | 폴백 모델 ID(bedrock이면 필수), 폴백 허용 의도 |
-| `STORAGE_PROVIDER` | `local` | `local` \| `supabase`(스텁) \| `s3`(스텁) |
+| `STORAGE_PROVIDER` | `local` | `local` \| `supabase`(스텁) \| `azure_blob`(스텁) |
 | `STORAGE_LOCAL_DIR` | `var/storage` (compose: `/data/storage` 볼륨) | |
 | `TRACER` | `pg` | `pg` \| `langfuse`(스텁) |
 | `HISTORY_TURNS` | `4` | 멀티턴 최근 N턴 |
@@ -224,13 +224,13 @@ Bedrock 요청 형식·폴백·SDK import 경계(`test_bedrock.py`), 일반 대�
 
 | 영역 | 지금(로컬) | 나중 | 바꿀 설정 | 구현할 파일 |
 | --- | --- | --- | --- | --- |
-| DB | 로컬 Postgres 컨테이너 | Supabase(Session pooler 5432) → RDS | `DATABASE_URL` | 없음(마이그레이션이 `extensions` 스키마를 자동 감지) |
-| 인증 | local JWT(dev-login) | Supabase Auth → Cognito | `AUTH_PROVIDER`, `SUPABASE_*`/`COGNITO_*` | `app/auth/supabase_jwt.py`, `app/auth/cognito_jwt.py`, web `src/lib/auth.ts` |
+| DB | 로컬 Postgres 컨테이너 | Supabase(Session pooler 5432) → Azure Database for PostgreSQL | `DATABASE_URL` | 없음(마이그레이션이 `extensions` 스키마를 자동 감지) |
+| 인증 | local JWT(dev-login) | **자체 발급 JWT 유지**(로그인 수단 보강) 또는 Supabase Auth·Entra External ID | `AUTH_PROVIDER`, `SUPABASE_*`/`ENTRA_*` | 자체 발급: 로그인 라우터. 외부: `app/auth/supabase_jwt.py`, `app/auth/entra_jwt.py`, web `src/lib/auth.ts` |
 | 운영 화면 인증 | role=admin | Cloudflare Access | `ADMIN_AUTH=cf_access`, `CF_ACCESS_*` | `app/auth/cf_access.py` |
-| 파일 저장 | 로컬 볼륨 | Supabase Storage → S3 | `STORAGE_PROVIDER` | `app/storage/supabase_storage.py`, `app/storage/s3.py` |
-| LLM | OpenAI API(`gpt-5.4-nano`) | **Bedrock** 또는 AWS 자체 호스팅 vLLM | `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_MODEL` (`infra/aws/`) | 없음(구현됨: `app/llm/bedrock.py`) |
-| 임베딩 | OpenAI `text-embedding-3-small`(1024차원) | Bedrock Titan v2 | `EMBEDDING_PROVIDER=bedrock`, `EMBEDDING_MODEL` | 없음(구현됨) |
-| 폴백 | 없음 | Bedrock | `FALLBACK_PROVIDER=bedrock`, `BEDROCK_MODEL_ID` | 없음(구현됨) |
+| 파일 저장 | 로컬 볼륨 | Azure Blob Storage(원본) + DB `documents.source_uri`(주소) | `STORAGE_PROVIDER` | `app/storage/azure_blob.py`(또는 `app/storage/supabase_storage.py`) |
+| LLM | OpenAI API(`gpt-5.4-nano`) | **Azure OpenAI** 또는 Azure 자체 호스팅 vLLM | `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` (`infra/azure/`) | 없음(같은 `openai_compat` 어댑터) |
+| 임베딩 | OpenAI `text-embedding-3-small`(1024차원) | Azure OpenAI `text-embedding-3-small` | `EMBEDDING_MODEL`(배포 이름) | 없음 |
+| 폴백 | 없음 | (필요 시) Azure OpenAI | — | `app/llm/router.py`(지금 폴백 공급자는 `bedrock`만 있다) |
 | 트레이스 | Postgres `traces` | Langfuse | `TRACER=langfuse` | `app/observability/langfuse_tracer.py` |
 | 메트릭 | `/metrics` 노출 | Grafana Cloud 수집 | — | 없음(수집기 설정만) |
 | 캐시 | 프로세스 TTLCache | (필요 시) Redis | — | `app/cache/__init__.py`(함수 시그니처 유지) |
@@ -261,7 +261,8 @@ ml/eval/        평가 CLI
 prompts/        system/ guard/(rules.yaml, disclaimers.yaml, judge.md) templates/(high_risk/*.md 등)
 data/           samples/(시드·문서) eval-sets/(형식 예시 10줄씩)
 infra/local/    docker-compose.yml db/init.sql
-infra/aws/      고도화 버전 설정 예시(Bedrock, 자체 호스팅 vLLM, IAM 최소 권한)
+infra/azure/    고도화 버전 구성(AWS → Azure 대응표, Azure OpenAI, 자체 호스팅 vLLM, DB·인증·저장소)
+infra/aws/      (참고) 이전 AWS 계획 — Bedrock 어댑터 설정. 기본 경로는 infra/azure/
 infra/mvp/      (참고) 이전 EC2 + cloudflared 배포 초안 — 이번 범위에서는 쓰지 않는다
 scripts/        demo.py run-fake.sh run-local.sh _common.sh
 my-rag-project/ 2주차 실습 RAG 프로토타입(.env, requirements.txt, rag_module.py, app.py)
@@ -333,3 +334,6 @@ my-rag-project/ 2주차 실습 RAG 프로토타입(.env, requirements.txt, rag_m
 | 2026-11-12 | 분류기 프롬프트에 '살 수 있나요'(제도 질문)는 faq, 개인 판단·예측·계산만 high_risk라는 경계와 예시를 둔다 | 실제 모델이 "조금이라도 있으면 포함" 규칙을 과하게 적용해 제도 질문을 고위험으로 막았다 |
 | 2026-11-12 | 위험 요청(해킹·보안 공격, 불법 행위 방법, 프롬프트 인젝션)은 `blocked` 의도로 즉시 차단: 규칙에 걸리면 LLM을 부르지 않고 고정 문구, 규칙을 비켜 가면 분류기가 잡는다. 우선순위는 차단 > 고위험 > 추천 | 일반 대화 모드에서 모델이 "서면 허가를 받으면…" 식으로 답하다가 "허가받았다"는 말에 침투 가이드를 주려 했다. 사유로 설득되는 경로를 없앤다 |
 | 2026-11-12 | 직전 답변이 차단이면 범위 밖 후속 질문("허가 받았어")도 차단, ETF 질문으로 돌아오면 정상 답변 | 사유를 덧붙여 차단을 푸는 다단계 시도를 막되 정상 이용은 막지 않는다 |
+| 2026-11-13 | 고도화 버전 인프라는 전체 Azure로 간다(이전 AWS 계획 대체). LLM·임베딩은 Azure OpenAI, DB는 Azure Database for PostgreSQL, 대응표는 `infra/azure/README.md` | 인프라를 한 클라우드로 통일한다. Azure OpenAI는 `openai_compat` 어댑터로 이미 동작해 코드 변경이 없다. Bedrock 어댑터는 선택지로 남긴다 |
+| 2026-11-13 | 인증은 배포 후에도 JWT 검증 구조를 유지한다. 기본은 자체 발급 JWT, Cognito 스텁은 Entra External ID 스텁(`AUTH_PROVIDER=entra`)으로 바꿈 | 외부 로그인 서비스도 결국 JWT를 발급하므로 API 쪽 구조는 같다. 자체 발급으로 가려면 `dev-login`을 대신할 실제 로그인 수단이 필요하다 |
+| 2026-11-13 | 원본 파일은 Azure Blob Storage에, DB에는 주소(`documents.source_uri`)만 둔다. S3 스텁은 `STORAGE_PROVIDER=azure_blob` 스텁으로 바꿈 | 답변에 쓰는 본문 조각·임베딩은 이미 DB `chunks`에 있어 원본을 DB에 중복 저장할 이유가 없다. 목록·재-ingest 갱신은 `source_uri` 기준이라 DB 기록은 필요하다 |

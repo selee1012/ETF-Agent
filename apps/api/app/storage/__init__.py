@@ -14,10 +14,10 @@ def build_storage(settings: Settings) -> Storage:
             from app.storage.supabase_storage import SupabaseStorage
 
             return SupabaseStorage()
-        case StorageProvider.S3:
-            from app.storage.s3 import S3Storage
+        case StorageProvider.AZURE_BLOB:
+            from app.storage.azure_blob import AzureBlobStorage
 
-            return S3Storage()
+            return AzureBlobStorage()
 
 
 __all__ = ["Storage", "StoredObject", "build_storage"]
