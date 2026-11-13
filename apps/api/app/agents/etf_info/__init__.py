@@ -17,7 +17,9 @@ async def run(state: GraphState, deps: AgentDeps) -> AgentResult:
         if tickers:
             etfs = await price_lookup.etfs(session, tickers)
             prices = await price_lookup.latest(session, [e.ticker for e in etfs])
-            as_of = compare.as_of(list(prices.values()))
+            # 요청한 상품의 시세만 본다(상품마다 기준일이 다를 수 있다)
+            dates = compare.as_of_dates([prices.get(e.ticker) for e in etfs])
+            as_of = compare.as_of_text(dates)
             if len(etfs) >= 2:
                 table = compare.compare_table(etfs, prices)
                 title = f"{len(etfs)}개 상품 비교"
@@ -46,13 +48,18 @@ async def run(state: GraphState, deps: AgentDeps) -> AgentResult:
                 )
             table = compare.list_table(etfs)
             title = f"검색 결과({filters.describe()}) {len(etfs)}건"
-            as_of = None
+            dates, as_of = [], None
 
-    as_of_line = f"기준일: {as_of.isoformat()} (일별 데이터)" if as_of else "출처: ETF 마스터(샘플)"
+    if len(dates) > 1:
+        as_of_line = f"기준일: 상품마다 다릅니다({as_of}). 표의 '시세 기준일'을 확인하세요."
+    elif as_of:
+        as_of_line = f"기준일: {as_of} (일별 데이터)"
+    else:
+        as_of_line = "출처: ETF 마스터(샘플)"
     data = f"**{title}**\n\n{table}\n\n{as_of_line}"
     source = Source(
         title="ETF 마스터·일별 시세 DB(샘플)",
-        location=f"기준일 {as_of.isoformat()}" if as_of else None,
+        location=f"기준일 {as_of}" if as_of else None,
         kind="etf_data",
     )
     return AgentResult(

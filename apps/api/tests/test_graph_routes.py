@@ -6,6 +6,8 @@ from app.agents.graph import run_graph
 from app.agents.state import AgentDeps
 from app.llm.base import LLMError
 from app.llm.fake import FakeLLM
+from app.repositories import etf as etf_repo
+from app.tools import price_lookup
 
 
 async def ask(deps: AgentDeps, q: str, **kw):
@@ -21,6 +23,29 @@ async def test_etf_info_compare_uses_db_numbers_with_as_of(deps: AgentDeps) -> N
     assert "36,180원" in ans and "21,940원" in ans  # data/samples/prices_daily.csv 최신 종가
     assert "기준일: 2026-11-11" in ans
     assert "원금 손실이 발생할 수 있습니다" in ans  # 필수 고지
+
+
+async def test_compare_does_not_label_stale_price_with_newest_date(
+    deps: AgentDeps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 900010만 최신 시세가 하루 늦은 상황(거래 정지·수집 누락)
+    async with deps.maker() as s:
+        older_row, latest_row = await etf_repo.price_history(s, "900010", days=2)
+    original = price_lookup.latest
+
+    async def stale_latest(session, tickers):
+        prices = await original(session, tickers)
+        return {**prices, "900010": older_row}
+
+    monkeypatch.setattr(price_lookup, "latest", stale_latest)
+    st = await ask(deps, "샘플 코스피200이랑 샘플 미국S&P500 비교해줘")
+    older, latest = older_row.trade_date.isoformat(), latest_row.trade_date.isoformat()
+    ans = st["answer"]
+    assert st["verdict"] == "pass"
+    assert f"기준일: {latest} (일별 데이터)" not in ans  # 최신 날짜 하나로 뭉뚱그리지 않는다
+    assert "기준일: 상품마다 다릅니다" in ans
+    assert f"| 시세 기준일 | {older} | {latest} |" in ans
+    assert st["sources"][0].location == f"기준일 {older} ~ {latest}"
 
 
 async def test_etf_info_premium_discount(deps: AgentDeps) -> None:

@@ -18,12 +18,23 @@ _ROWS = [
     ("거래량", lambda e, p: fmt.shares(p.volume) if p else "-"),
     ("순자산", lambda e, p: fmt.eok(p.net_assets) if p else "-"),
     ("상장일", lambda e, p: e.listed_date.isoformat() if e.listed_date else "-"),
+    # 시세 기준일은 상품마다 다를 수 있다(거래 정지·수집 누락). 열마다 자기 날짜를 적는다.
+    ("시세 기준일", lambda e, p: p.trade_date.isoformat() if p else "-"),
 ]
 
 
-def as_of(prices: Sequence[PriceDaily | None]) -> date | None:
-    dates = [p.trade_date for p in prices if p is not None]
-    return max(dates) if dates else None
+def as_of_dates(prices: Sequence[PriceDaily | None]) -> list[date]:
+    """시세 기준일(중복 없이 오름차순). 상품마다 다르면 둘 이상이 나온다."""
+    return sorted({p.trade_date for p in prices if p is not None})
+
+
+def as_of_text(dates: Sequence[date]) -> str | None:
+    """기준일 표기. 날짜가 여럿이면 가장 최근 날짜 하나로 뭉뚱그리지 않고 범위로 적는다."""
+    if not dates:
+        return None
+    if len(dates) == 1:
+        return dates[0].isoformat()
+    return f"{dates[0].isoformat()} ~ {dates[-1].isoformat()}"
 
 
 def _cell(s: str) -> str:
