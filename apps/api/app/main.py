@@ -13,6 +13,7 @@ from app.db import dispose_engine
 from app.logging import configure_logging, get_logger
 from app.observability.metrics import observe_http
 from app.routers import admin, auth, chat, feedback, health, history, metrics
+from app.services.chat import drain as drain_chat
 from app.settings import Settings, get_settings
 
 log = get_logger(__name__)
@@ -48,6 +49,7 @@ class MetricsMiddleware:
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
+    await drain_chat()  # 진행 중인 답변의 저장이 끝난 뒤에 DB 엔진을 닫는다
     await dispose_engine()
 
 

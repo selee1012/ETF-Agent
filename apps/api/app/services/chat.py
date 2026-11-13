@@ -2,8 +2,10 @@
 
 이벤트 순서: status(요청 즉시) → status… → token… → sources → done
 - 준비 단계(대화·질문 저장)나 답변 작업이 실패하면 error 이벤트로 끝낸다(done 없음).
-- 답변 작성·저장·트레이스는 응답 스트림과 분리된 작업으로 돌린다. 클라이언트가 중간에 끊어도
-  끝까지 돌아 기록이 남고, 이력에 답 없는 질문만 남지 않는다. 토큰 전송은 그 뒤에 한다.
+- 답변 작성·저장·트레이스는 응답 스트림과 분리된 작업으로 돌린다. 토큰 전송은 그 뒤에 한다.
+- 클라이언트가 중간에 끊으면 답변 작성(LLM 호출)은 멈추고, '중단됨' 답변과 트레이스만 남긴다.
+  이력에 답 없는 질문만 남지 않고, 끊긴 요청이 비용·DB 연결을 계속 쓰지도 않는다.
+- 답변 작성에는 상한 시간이 있고, 서버 종료 때는 진행 중인 작업의 저장을 기다린다(drain).
 - 토큰은 가드를 통과한 최종 답변을 잘게 나눠 보낸다(검증 전 문장이 화면에 노출되지 않도록).
 - 질의 원문은 메모리에서만 쓰고, DB에는 mask_pii() 값만, 트레이스·로그에는 남기지 않는다.
 """
@@ -33,8 +35,18 @@ log = get_logger(__name__)
 
 _TOKEN_RE = re.compile(r"\S+\s*|\s+")
 ERROR_MESSAGE = "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."
-# 연결이 끊겨도 끝까지 도는 답변 작업. 이벤트 루프는 약한 참조만 가지므로 여기서 붙잡아 둔다.
+CANCELLED_ANSWER = "답변을 받기 전에 연결이 끊겨 작성을 멈췄습니다. 같은 질문을 다시 보내 주세요."
+CANCELLED_VERDICT = "cancelled"
+# 답변 한 건의 상한 시간(분류 + 답변 + 재생성 + 판정). 넘으면 안전 답변으로 끝낸다.
+ANSWER_TIMEOUT_SECONDS = 120.0
+# 응답 스트림과 분리된 답변 작업. 이벤트 루프는 약한 참조만 가지므로 여기서 붙잡아 둔다.
 _running: set[asyncio.Task[Any]] = set()
+
+
+async def drain(wait_seconds: float = 15.0) -> None:
+    """서버 종료 때: 진행 중인 답변 작업이 저장을 마칠 때까지 기다린다(DB 엔진을 닫기 전)."""
+    if _running:
+        await asyncio.wait(set(_running), timeout=wait_seconds)
 
 
 class ChatRequest(BaseModel):
@@ -123,19 +135,23 @@ async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> A
             started=started,
         )
     )
-    # 클라이언트가 끊겨 이 제너레이터가 닫혀도 작업은 취소하지 않는다(답변·트레이스 저장까지 간다).
     _running.add(task)
     task.add_done_callback(_running.discard)
-    while not task.done() or not queue.empty():
-        getter = asyncio.ensure_future(queue.get())
-        try:
-            done, _ = await asyncio.wait({task, getter}, return_when=asyncio.FIRST_COMPLETED)
-        finally:
-            if not getter.done():
-                getter.cancel()
-        if getter in done:
-            event, data = getter.result()
-            yield sse(event, data)
+    try:
+        while not task.done() or not queue.empty():
+            getter = asyncio.ensure_future(queue.get())
+            try:
+                done, _ = await asyncio.wait({task, getter}, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                if not getter.done():
+                    getter.cancel()
+            if getter in done:
+                event, data = getter.result()
+                yield sse(event, data)
+    finally:
+        # 클라이언트가 끊겨 이 제너레이터가 닫혔다. 답변 작성을 멈춘다(작업이 '중단됨'을 기록한다).
+        if not task.done():
+            task.cancel()
     try:
         result = task.result()
     except Exception:
@@ -164,26 +180,35 @@ async def _answer(
     context_tickers: list[str],
     started: float,
 ) -> dict[str, Any]:
-    """그래프 실행 → 답변 저장 → 트레이스. 실패해도 안전 답변을 저장하고 결과를 돌려준다."""
-    state: GraphState | None
+    """그래프 실행 → 답변 저장 → 트레이스. 실패·중단·시간 초과에도 답변을 저장하고 결과를 돌려준다."""
+    state: GraphState | None = None
+    cancelled = False
     try:
-        state = await run_graph(
-            deps,
-            request_id=request_id,
-            query=query,
-            level=level.value,
-            history=history,
-            context_tickers=context_tickers,
-        )
+        async with asyncio.timeout(ANSWER_TIMEOUT_SECONDS):
+            state = await run_graph(
+                deps,
+                request_id=request_id,
+                query=query,
+                level=level.value,
+                history=history,
+                context_tickers=context_tickers,
+            )
+    except asyncio.CancelledError:
+        # 클라이언트가 끊었다(또는 서버 종료). 여기서 멈추고 아래에서 중단 기록만 남긴다.
+        cancelled = True
     except Exception:
-        # 질의 원문 없이 예외 종류만 남긴다
+        # 질의 원문 없이 예외 종류만 남긴다(시간 초과 포함)
         log.exception("chat_graph_failed", request_id=request_id)
-        state = None
 
-    if state is None:
+    if cancelled:
+        answer, verdict, intents, sources = CANCELLED_ANSWER, CANCELLED_VERDICT, [], []
+        reasons, agents, retrieved, model = ["note:client_disconnected"], [], [], c.llm.model
+        entities: list[str] = []
+        fallback = False
+    elif state is None:
         answer, verdict, intents, sources = safe_answer(c.settings.inquiry_channel), "error", [], []
         reasons, agents, retrieved, model = ["error:graph_exception"], [], [], c.llm.model
-        entities: list[str] = []
+        entities = []
         fallback = False
     else:
         answer = state.get("answer") or safe_answer(c.settings.inquiry_channel)

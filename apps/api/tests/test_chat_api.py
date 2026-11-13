@@ -168,15 +168,17 @@ async def test_prepare_failure_sends_error_event(app: FastAPI) -> None:
     assert events[-1][1]["message"] and events[-1][1]["request_id"]
 
 
-async def test_disconnect_still_saves_answer_and_trace(app: FastAPI, user_headers: dict) -> None:
+async def test_disconnect_stops_llm_and_records_cancelled(app: FastAPI, user_headers: dict) -> None:
     c = app.state.container
     c.llm = SlowLLM()
     me = await c.auth.authenticate(user_headers["Authorization"].split()[1])
     gen = stream_chat(c, Principal(me.user_id, me.email, me.role), ChatRequest(message="분배금?"))
     await anext(gen)
-    await anext(gen)  # 그래프가 도는 중
+    await anext(gen)  # 그래프가 도는 중(느린 분류 호출을 기다린다)
     await gen.aclose()  # 클라이언트가 끊었다
-    await asyncio.gather(*chat_service._running)
+    await chat_service.drain()
+    assert not chat_service._running
+    assert c.llm.count("answer") == 0  # 끊긴 요청은 답변을 쓰지 않는다
     async with get_sessionmaker()() as s:
         rows = (
             await s.scalars(
@@ -186,9 +188,20 @@ async def test_disconnect_still_saves_answer_and_trace(app: FastAPI, user_header
                 .order_by(Message.created_at)
             )
         ).all()
+        trace = await s.scalar(select(Trace).where(Trace.request_id == rows[0].request_id))
     assert [m.role for m in rows] == ["user", "assistant"]  # 답 없는 질문만 남지 않는다
-    async with get_sessionmaker()() as s:
-        assert await s.scalar(select(Trace).where(Trace.request_id == rows[0].request_id))
+    assert rows[1].guard_verdict == "cancelled" and "연결이 끊겨" in rows[1].content
+    assert trace.guard_verdict == "cancelled"
+
+
+async def test_answer_timeout_gives_safe_answer(
+    client: AsyncClient, app: FastAPI, user_headers: dict, monkeypatch
+) -> None:
+    app.state.container.llm = SlowLLM()
+    monkeypatch.setattr(chat_service, "ANSWER_TIMEOUT_SECONDS", 0.05)
+    events = await chat(client, user_headers, "분배금?")
+    assert events[-1][0] == "done" and events[-1][1]["guard"]["verdict"] == "error"
+    assert "문의" in answer_text(events)
 
 
 async def test_feedback_only_on_own_requests(client: AsyncClient, user_headers: dict) -> None:
