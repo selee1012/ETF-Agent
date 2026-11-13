@@ -1,5 +1,6 @@
 """운영 화면 API: 권한, 트레이스·피드백 조회, 문서 업로드 → 검색 반영 (P1-API-04)."""
 
+from fastapi import FastAPI
 from httpx import AsyncClient
 
 from tests.sse import parse_sse
@@ -68,3 +69,31 @@ async def test_upload_rejects_unsupported(client: AsyncClient, admin_headers: di
     files = {"file": ("x.exe", b"MZ", "application/octet-stream")}
     resp = await client.post("/admin/documents", files=files, headers=admin_headers)
     assert resp.status_code == 415
+
+
+async def test_broken_pdf_is_rejected_and_not_stored(
+    client: AsyncClient, app: FastAPI, admin_headers: dict
+) -> None:
+    files = {"file": ("broken.pdf", b"not a pdf", "application/pdf")}
+    resp = await client.post("/admin/documents", files=files, headers=admin_headers)
+    assert resp.status_code == 422, resp.text
+    assert not await app.state.container.storage.exists("uploads/broken.pdf")
+
+
+async def test_failed_reupload_keeps_previous_original(
+    client: AsyncClient, app: FastAPI, admin_headers: dict
+) -> None:
+    good = b"# [\xec\x83\x98\xed\x94\x8c] keep\n\n## a\n\nfirst version body"
+    ok = await client.post(
+        "/admin/documents",
+        files={"file": ("keep.md", good, "text/markdown")},
+        headers=admin_headers,
+    )
+    assert ok.status_code == 201
+    empty = await client.post(
+        "/admin/documents",
+        files={"file": ("keep.md", b"   \n", "text/markdown")},
+        headers=admin_headers,
+    )
+    assert empty.status_code == 422  # 본문이 비어 적재 실패
+    assert await app.state.container.storage.get("uploads/keep.md") == good

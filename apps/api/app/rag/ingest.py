@@ -29,9 +29,15 @@ def _parse(filename: str, data: bytes) -> tuple[str | None, list[Section]]:
     if suffix == ".pdf":
         import pymupdf  # PDF 파서(공급자 SDK 아님)
 
-        with pymupdf.open(stream=data, filetype="pdf") as pdf:
-            pages = [page.get_text("text") for page in pdf]
-            title = (pdf.metadata or {}).get("title") or None
+        try:
+            with pymupdf.open(stream=data, filetype="pdf") as pdf:
+                pages = [page.get_text("text") for page in pdf]
+                title = (pdf.metadata or {}).get("title") or None
+        except (
+            RuntimeError,
+            ValueError,
+        ) as e:  # 손상·암호화된 PDF(pymupdf 예외는 RuntimeError 계열)
+            raise ValueError("PDF를 읽을 수 없습니다(손상됐거나 암호가 걸린 파일)") from e
         return title, parse_plain_pages(pages)
     if suffix in (".md", ".markdown", ".txt"):
         return parse_markdown(data.decode("utf-8", errors="replace"))

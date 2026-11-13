@@ -107,7 +107,11 @@ async def upload_document(
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "10MB 이하 파일만 올릴 수 있습니다")
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "빈 파일입니다")
-    stored = await c.storage.put(f"uploads/{filename}", data, file.content_type)
+    # 적재가 실패하면 저장소를 원래대로 되돌린다. 그러지 않으면 같은 이름의 정상 문서 원본이
+    # 실패한 파일로 덮인 채 남아 저장소와 색인(DB 청크)이 어긋난다.
+    key = f"uploads/{filename}"
+    previous = await c.storage.get(key) if await c.storage.exists(key) else None
+    stored = await c.storage.put(key, data, file.content_type)
     try:
         async with c.maker() as session:
             result = await ingest_bytes(
@@ -118,10 +122,16 @@ async def upload_document(
                 data=data,
                 doc_type=doc_type,
             )
-    except ValueError as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
-    except LLMError as e:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"임베딩 실패: {e}") from e
+    except Exception as e:
+        if previous is None:
+            await c.storage.delete(key)
+        else:
+            await c.storage.put(key, previous, file.content_type)
+        if isinstance(e, ValueError):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
+        if isinstance(e, LLMError):
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"임베딩 실패: {e}") from e
+        raise
     return {
         "document_id": result.document_id,
         "title": result.title,
