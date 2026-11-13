@@ -121,6 +121,7 @@ async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> A
             break
 
     deps = AgentDeps(settings=c.settings, llm=c.llm, embedder=c.embedder, maker=c.maker, emit=emit)
+    saving = asyncio.Event()  # 답변 작성(그래프)이 끝나고 저장 단계로 넘어가면 켜진다
     task = asyncio.create_task(
         _answer(
             c,
@@ -133,6 +134,7 @@ async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> A
             history=history,
             context_tickers=context_tickers,
             started=started,
+            saving=saving,
         )
     )
     _running.add(task)
@@ -150,7 +152,8 @@ async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> A
                 yield sse(event, data)
     finally:
         # 클라이언트가 끊겨 이 제너레이터가 닫혔다. 답변 작성을 멈춘다(작업이 '중단됨'을 기록한다).
-        if not task.done():
+        # 이미 저장 단계면 건드리지 않는다: 그때 취소하면 답변도 트레이스도 남지 않는다.
+        if not task.done() and not saving.is_set():
             task.cancel()
     try:
         result = task.result()
@@ -179,6 +182,7 @@ async def _answer(
     history: list[dict[str, Any]],
     context_tickers: list[str],
     started: float,
+    saving: asyncio.Event,
 ) -> dict[str, Any]:
     """그래프 실행 → 답변 저장 → 트레이스. 실패·중단·시간 초과에도 답변을 저장하고 결과를 돌려준다."""
     state: GraphState | None = None
@@ -199,6 +203,7 @@ async def _answer(
     except Exception:
         # 질의 원문 없이 예외 종류만 남긴다(시간 초과 포함)
         log.exception("chat_graph_failed", request_id=request_id)
+    saving.set()  # 여기부터는 취소하지 않는다(호출 측이 이 표시를 보고 판단한다)
 
     if cancelled:
         answer, verdict, intents, sources = CANCELLED_ANSWER, CANCELLED_VERDICT, [], []

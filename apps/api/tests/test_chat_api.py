@@ -12,6 +12,7 @@ from app.auth import Principal
 from app.db import get_sessionmaker
 from app.llm.base import ChatMessage, LLMResponse
 from app.llm.fake import FakeLLM
+from app.repositories import conversations as conv_repo
 from app.repositories.models import Conversation, Feedback, Message, Trace
 from app.services import chat as chat_service
 from app.services.chat import ChatRequest, _public_reasons, stream_chat
@@ -192,6 +193,41 @@ async def test_disconnect_stops_llm_and_records_cancelled(app: FastAPI, user_hea
     assert [m.role for m in rows] == ["user", "assistant"]  # 답 없는 질문만 남지 않는다
     assert rows[1].guard_verdict == "cancelled" and "연결이 끊겨" in rows[1].content
     assert trace.guard_verdict == "cancelled"
+
+
+async def test_disconnect_during_save_keeps_the_answer(
+    app: FastAPI, user_headers: dict, monkeypatch
+) -> None:
+    c = app.state.container
+    me = await c.auth.authenticate(user_headers["Authorization"].split()[1])
+    original = conv_repo.add_message
+
+    async def slow_add(session, **kw):
+        if kw["role"] == "assistant":
+            await asyncio.sleep(0.2)  # 저장 중에 클라이언트가 끊기는 상황
+        return await original(session, **kw)
+
+    monkeypatch.setattr(conv_repo, "add_message", slow_add)
+    gen = stream_chat(c, Principal(me.user_id, me.email, me.role), ChatRequest(message="분배금?"))
+    await anext(gen)
+    while c.llm.count("judge") == 0:  # 그래프가 끝날 때까지 상태 이벤트를 받는다
+        await anext(gen)
+    await asyncio.sleep(0.05)  # 저장 단계 진입
+    await gen.aclose()
+    await chat_service.drain()
+    async with get_sessionmaker()() as s:
+        rows = (
+            await s.scalars(
+                select(Message)
+                .join(Conversation, Message.conversation_id == Conversation.id)
+                .where(Conversation.user_id == me.user_id)
+                .order_by(Message.created_at)
+            )
+        ).all()
+        trace = await s.scalar(select(Trace).where(Trace.request_id == rows[0].request_id))
+    assert [m.role for m in rows] == ["user", "assistant"]
+    assert rows[1].guard_verdict == "pass"  # 완성된 답변이 그대로 저장된다
+    assert trace is not None and trace.guard_verdict == "pass"
 
 
 async def test_answer_timeout_gives_safe_answer(
