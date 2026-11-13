@@ -19,7 +19,7 @@ log = get_logger(__name__)
 
 
 class MetricsMiddleware:
-    """요청 수·지연 시간(라우트 템플릿 기준 라벨). # P1-OP-02"""
+    """요청 수·지연 시간(라우트 템플릿 기준 라벨)"""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app

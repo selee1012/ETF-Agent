@@ -1,4 +1,4 @@
-"""어댑터 조립. settings의 Enum 값으로만 구현체를 고른다(공통 규칙 3)."""
+"""어댑터 조립. settings의 Enum 값으로만 구현체를 고른다"""
 
 from dataclasses import dataclass
 

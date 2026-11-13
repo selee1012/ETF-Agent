@@ -1,6 +1,6 @@
 """환경변수 기반 애플리케이션 설정. 모든 설정값은 이 모듈에서만 읽는다.
 
-어댑터(LLM·인증·저장소·트레이서)는 여기의 Enum 값으로만 고른다(공통 규칙 3).
+어댑터(LLM·인증·저장소·트레이서)는 여기의 Enum 값으로만 고른다
 """
 
 import secrets
@@ -12,7 +12,8 @@ from typing import Annotated, Literal
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-# apps/api/app/settings.py → 레포 루트. 컨테이너도 /workspace에 같은 구조로 둔다.
+# apps/api/app/settings.py → 레포 루트
+# 컨테이너도 /workspace에 같은 구조로 둔다
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
