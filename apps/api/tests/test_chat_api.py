@@ -38,6 +38,8 @@ async def test_sse_event_order(client: AsyncClient, user_headers: dict) -> None:
     names = [e for e, _ in events]
     assert names[0] == "status"
     assert events[0][1]["message"] == "질문을 이해하는 중"
+    # 대화 id는 done 전에 미리 온다(오류로 끝나도 같은 대화에 이어 물을 수 있게)
+    assert events[1][1]["conversation_id"] == events[-1][1]["conversation_id"]
     first_token = names.index("token")
     assert set(names[:first_token]) == {"status"}
     assert "ETF 정보를 찾는 중" in [d["message"] for e, d in events if e == "status"]
@@ -166,6 +168,7 @@ async def test_prepare_failure_sends_error_event(app: FastAPI) -> None:
     gen = stream_chat(app.state.container, ghost, ChatRequest(message="괴리율이 뭐야?"))
     events = parse_sse("".join([chunk async for chunk in gen]))
     assert [e for e, _ in events] == ["status", "error"]
+    assert "conversation_id" not in events[0][1]  # 대화를 만들지 못했다
     assert events[-1][1]["message"] and events[-1][1]["request_id"]
 
 

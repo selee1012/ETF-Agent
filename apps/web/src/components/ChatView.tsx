@@ -141,6 +141,10 @@ export function ChatView({ onAuthError }: { onAuthError: () => void }) {
           onStatus: (status) => patch(aKey, (m) => ({ ...m, status })),
           onToken: (t) => patch(aKey, (m) => ({ ...m, content: m.content + t })),
           onSources: (sources) => patch(aKey, (m) => ({ ...m, sources })),
+          // done을 받기 전에 오류로 끝나도 다음 질문이 같은 대화에 이어지게 한다
+          onConversation: (id) => {
+            if (!ctrl.signal.aborted) setConversationId(id)
+          },
           onDone: (d) => {
             if (ctrl.signal.aborted) return // 이미 다른 대화로 넘어갔다
             setConversationId(d.conversation_id)
@@ -159,6 +163,7 @@ export function ChatView({ onAuthError }: { onAuthError: () => void }) {
         streaming: false,
         error: e instanceof Error ? e.message : '요청 실패',
       }))
+      refreshConversations() // 실패한 질문의 대화도 목록에 보이게 한다
     } finally {
       if (abortRef.current === ctrl) abortRef.current = null
       setBusy(false)

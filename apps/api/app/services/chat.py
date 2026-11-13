@@ -1,6 +1,6 @@
 """채팅 SSE 서비스. # P1-API-01
 
-이벤트 순서: status(요청 즉시) → status… → token… → sources → done
+이벤트 순서: status(요청 즉시) → status(accepted, conversation_id) → status… → token… → sources → done
 - 준비 단계(대화·질문 저장)나 답변 작업이 실패하면 error 이벤트로 끝낸다(done 없음).
 - 답변 작성·저장·트레이스는 응답 스트림과 분리된 작업으로 돌린다. 토큰 전송은 그 뒤에 한다.
 - 클라이언트가 중간에 끊으면 답변 작성(LLM 호출)은 멈추고, '중단됨' 답변과 트레이스만 남긴다.
@@ -113,6 +113,16 @@ async def stream_chat(c: Container, principal: Principal, req: ChatRequest) -> A
         log.exception("chat_prepare_failed", request_id=request_id)
         yield sse("error", {"request_id": request_id, "message": ERROR_MESSAGE})
         return
+    # 대화 id를 바로 알린다. 이후 오류·끊김으로 done을 받지 못해도 클라이언트가 같은 대화에
+    # 이어서 물을 수 있다(모르면 다음 질문이 또 다른 대화로 만들어진다).
+    # 여기서 직접 yield하지 않고 큐에 넣는다: 질문을 저장한 뒤 답변 작업을 만들기 전에 스트림이
+    # 닫히면 답 없는 질문만 남는다.
+    queue.put_nowait(
+        (
+            "status",
+            {"stage": "accepted", "message": "질문을 이해하는 중", "conversation_id": str(conv.id)},
+        )
+    )
     history = [{"role": m.role, "content": m.content, "intent": m.intent} for m in history_rows]
     context_tickers: list[str] = []
     for m in reversed(history_rows):

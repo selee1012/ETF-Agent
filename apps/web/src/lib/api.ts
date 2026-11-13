@@ -105,6 +105,8 @@ export type ChatHandlers = {
   onToken: (text: string) => void
   onSources: (sources: Source[]) => void
   onDone: (done: DoneEvent) => void
+  /** 서버가 대화를 만들거나 찾은 직후 알려 주는 대화 id(done 전에 온다) */
+  onConversation?: (conversationId: string) => void
 }
 
 /** POST /chat SSE를 fetch 스트림으로 읽는다(EventSource는 POST를 지원하지 않는다).
@@ -158,8 +160,10 @@ function dispatch(block: string, h: ChatHandlers): boolean {
   if (!data.length) return false
   const payload = JSON.parse(data.join('\n'))
   if (event === 'error') throw new ApiError(500, payload.message ?? '요청을 처리하지 못했습니다')
-  if (event === 'status') h.onStatus(payload.message, payload.stage)
-  else if (event === 'token') h.onToken(payload.text)
+  if (event === 'status') {
+    if (payload.conversation_id) h.onConversation?.(payload.conversation_id)
+    h.onStatus(payload.message, payload.stage)
+  } else if (event === 'token') h.onToken(payload.text)
   else if (event === 'sources') h.onSources(payload.sources)
   else if (event === 'done') h.onDone(payload)
   return event === 'done'
