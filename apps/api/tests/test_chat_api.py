@@ -13,7 +13,7 @@ from app.db import get_sessionmaker
 from app.llm.base import ChatMessage, LLMResponse
 from app.llm.fake import FakeLLM
 from app.repositories.models import Feedback, Message
-from app.services.chat import ChatRequest, stream_chat
+from app.services.chat import ChatRequest, _public_reasons, stream_chat
 from tests.sse import answer_text, parse_sse
 
 
@@ -136,3 +136,23 @@ async def test_dev_login_admin_role(client: AsyncClient) -> None:
     assert resp.json()["user"]["role"] == "admin"
     resp = await client.post("/auth/dev-login", json={"email": "not-an-email"})
     assert resp.status_code == 422
+
+
+def test_public_reasons_hide_raw_values() -> None:
+    reasons = ["ungrounded_number:9.99%", "banned:no_loss", "judge:ungrounded", "template"]
+    assert _public_reasons(reasons) == [
+        "banned:no_loss",
+        "judge:ungrounded",
+        "template",
+        "ungrounded_number",
+    ]
+
+
+async def test_done_event_has_no_rejected_figures(
+    client: AsyncClient, app: FastAPI, user_headers: dict
+) -> None:
+    app.state.container.llm.push("answer", "샘플 코스피200의 괴리율은 9.99%입니다.")
+    events = await chat(client, user_headers, "샘플 코스피200 괴리율")
+    reasons = events[-1][1]["guard"]["reasons"]
+    assert "ungrounded_number" in reasons
+    assert not any("9.99" in r for r in reasons)

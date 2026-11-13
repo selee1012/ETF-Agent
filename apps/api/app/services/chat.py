@@ -47,9 +47,18 @@ def split_tokens(text: str) -> list[str]:
     return _TOKEN_RE.findall(text)
 
 
+# 사유 뒤쪽이 고정된 식별자인 종류(룰 id·판정 코드). 그 밖의 종류는 뒤에 답변의 수치·문구가
+# 붙을 수 있어(ungrounded_number:9.99%) 종류만 보낸다.
+_CODE_KINDS = frozenset({"banned", "judge", "pii", "missing_disclaimer", "note", "error"})
+
+
 def _public_reasons(reasons: list[str]) -> list[str]:
     """done 이벤트에는 사유 코드만 보낸다(수치·문구 원문 제외)."""
-    return sorted({r.split(":", 2)[0] + ":" + r.split(":", 2)[1] for r in reasons if ":" in r})
+    out = set()
+    for r in reasons:
+        kind, _, detail = r.partition(":")
+        out.add(f"{kind}:{detail}" if detail and kind in _CODE_KINDS else kind)
+    return sorted(out)
 
 
 async def _profile_level(session: AsyncSession, principal: Principal) -> Level:
