@@ -11,7 +11,7 @@
 from dataclasses import dataclass, field
 
 from app.agents import faq, general
-from app.agents.common import history_text, retry_note
+from app.agents.common import history_text, prior_answer_evidence, retry_note
 from app.agents.prompts import load_text, load_yaml
 from app.agents.state import (
     AGENT_INTENTS,
@@ -193,7 +193,7 @@ async def synthesize(state: GraphState, deps: AgentDeps) -> Composed:
     return Composed(
         body="\n\n".join(parts),
         sources=_dedupe(sources),
-        evidence=[e for r in found for e in r.evidence] + notices,
+        evidence=[e for r in found for e in r.evidence] + notices + prior_answer_evidence(state),
         generated=bool(prose),
         cache_key=faq_result.cache_key if single_faq and faq_result is not None and prose else None,
     )

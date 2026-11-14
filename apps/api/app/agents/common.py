@@ -16,6 +16,20 @@ def history_text(state: GraphState, max_chars: int = 1200) -> str:
     return text[-max_chars:]
 
 
+def prior_answer_evidence(state: GraphState) -> list[str]:
+    """프롬프트의 [이전 대화]에 들어간 앞선 답변. 가드가 근거로 함께 본다.
+
+    앞선 답변은 이미 가드를 통과한 내용이다. 후속 질문에서 그 수치를 다시 짚으면('아까 그 괴리율')
+    이번 근거에는 없어 '근거 없는 수치'로 반려되고, 재작성해도 같아 안전 답변으로 끝난다.
+    근거 없이 쓴 일반 대화 답변과 사용자 발화는 넣지 않는다.
+    """
+    return [
+        str(h.get("content", ""))[:300]
+        for h in state.get("history") or []
+        if h.get("role") == "assistant" and h.get("intent") != "general" and h.get("content")
+    ]
+
+
 def history_turns(state: GraphState, max_chars: int = 2000) -> list[tuple[str, str]]:
     """최근 N턴(마스킹된 저장본)을 대화 메시지로. 답변 끝 고지 영역은 빼서 토큰을 아낀다."""
     turns: list[tuple[str, str]] = []

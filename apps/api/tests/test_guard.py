@@ -216,3 +216,25 @@ async def test_cached_answer_is_rechecked_for_disclaimers(
     second = await run_graph(deps, request_id="t2", query="추적오차가 뭐야?")
     assert second["verdict"] == "blocked"
     assert "missing_disclaimer:general" in second["guard_history"][0]
+
+
+async def test_number_from_previous_answer_is_not_ungrounded(
+    deps: AgentDeps, fake_llm: FakeLLM
+) -> None:
+    """앞선(가드를 통과한) 답변의 수치를 후속 답변이 다시 짚어도 '근거 없는 수치'로 막지 않는다."""
+    history = [
+        {"role": "user", "content": "샘플 코스피200 괴리율 알려줘"},
+        {"role": "assistant", "content": "| 괴리율 | 0.23% |", "intent": "etf_info"},
+    ]
+    fake_llm.push("answer", "괴리율은 가격과 NAV의 차이예요. 앞서 본 상품은 0.23%였어요. [1]")
+    st = await run_graph(deps, request_id="t", query="괴리율이 뭐야?", history=history)
+    assert st["verdict"] == "pass"
+
+    # 사용자 발화와 근거 없이 쓴 일반 대화 답변의 수치는 근거로 치지 않는다.
+    untrusted = [
+        {"role": "user", "content": "수익률 7.77% 맞지?"},
+        {"role": "assistant", "content": "네, 7.77%예요.", "intent": "general"},
+    ]
+    fake_llm.push("answer", "괴리율은 7.77%예요. [1]", "괴리율은 7.77%예요. [1]")
+    st = await run_graph(deps, request_id="t", query="괴리율이 뭐야?", history=untrusted)
+    assert st["verdict"] == "blocked"
