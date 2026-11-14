@@ -179,3 +179,13 @@ async def unverifiable_note(session: AsyncSession, f: EtfFilters) -> str:
         return ""
     fields = "·".join(x for x, on in (("분류", by_category), ("총보수", by_fee)) if on)
     return f"{fields} 정보가 없는 상품 {n}개는 조건을 확인할 수 없어 결과에서 뺐습니다."
+
+
+def region_unverified(f: EtfFilters, etfs: list[EtfMaster]) -> list[EtfMaster]:
+    """지역 조건을 걸었지만 분류에 지역 표기가 없어 지역을 확인하지 못한 채 결과에 넣은 상품.
+
+    search()는 '국내 리츠'처럼 지역과 분류를 함께 물으면 '부동산'·'원자재' 같은 분류를 빼지 않는다.
+    """
+    if not (f.region and f.category):
+        return []
+    return [e for e in etfs if not (e.category or "").startswith(REGIONS)]

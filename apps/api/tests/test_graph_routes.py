@@ -228,3 +228,15 @@ async def test_search_discloses_products_it_could_not_check(deps: AgentDeps) -> 
         async with deps.maker() as s:
             await s.execute(delete(EtfMaster).where(EtfMaster.ticker == "999999"))
             await s.commit()
+
+
+async def test_region_unverified_products_are_marked(deps: AgentDeps) -> None:
+    """'국내 리츠'는 분류('부동산')에 지역 표기가 없어 국내 여부를 모른다. 조건을 만족한 것처럼 두지 않는다."""
+    st = await ask(deps, "국내 리츠 ETF 목록 찾아줘")
+    assert "샘플 리츠부동산" in st["answer"]
+    assert "국내 상품인지 확인하지 못했습니다: 샘플 리츠부동산" in st["answer"]
+
+    plain = await ask(
+        deps, "총보수 0.1% 이하 해외 주식 ETF 찾아줘"
+    )  # 분류에 지역이 있으면 표시 없음
+    assert "확인하지 못했습니다" not in plain["answer"]

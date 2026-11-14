@@ -55,6 +55,11 @@ async def run(state: GraphState, deps: AgentDeps) -> AgentResult:
                         [f"조건({filters.describe()})에 맞는 ETF가 없습니다.", *notes]
                     ),
                 )
+            if unknown := etf_search.region_unverified(filters, etfs):
+                names = ", ".join(e.name for e in unknown)
+                notes.append(
+                    f"다음 상품은 분류에 지역 표기가 없어 {filters.region} 상품인지 확인하지 못했습니다: {names}"
+                )
             table = compare.list_table(etfs)
             title = f"검색 결과({filters.describe()}) {len(etfs)}건"
             if more:
