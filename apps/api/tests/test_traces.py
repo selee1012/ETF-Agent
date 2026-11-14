@@ -1,13 +1,15 @@
 """트레이스: 요청당 1행, 질의 원문 미저장, /metrics (P1-OP-01·02)."""
 
+import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 from pydantic import SecretStr
 from sqlalchemy import inspect, select
 
 from app.db import get_engine, get_sessionmaker
+from app.observability import build_tracer
 from app.repositories.models import Trace
-from app.settings import AppEnv
+from app.settings import AppEnv, Settings, Tracer
 from tests.sse import parse_sse
 
 RAW_QUERY = "샘플 코스피200 괴리율 알려줘 제 번호는 010-2222-3333 입니다 zz-unique-marker"
@@ -71,3 +73,10 @@ async def test_metrics_hidden_outside_local_without_token(
     c = app.state.container
     c.settings = c.settings.model_copy(update={"app_env": AppEnv.DEV, "metrics_token": None})
     assert (await client.get("/metrics")).status_code == 404
+
+
+def test_unimplemented_tracer_fails_at_startup(settings: Settings) -> None:
+    """스텁 트레이서로 기동하면 채팅은 되고 트레이스만 조용히 빠지므로 조립 단계에서 막는다."""
+    stub = settings.model_copy(update={"tracer": Tracer.LANGFUSE})
+    with pytest.raises(NotImplementedError, match="TRACER=pg"):
+        build_tracer(stub, get_sessionmaker())
