@@ -1,4 +1,4 @@
-"""임베딩 배치 호출. 모델 교체(bge-m3 → Kanana-2 등)는 EMBEDDING_MODEL/EMBEDDING_DIM으로만 한다."""
+"""임베딩 배치 호출. 모델 교체는 EMBEDDING_MODEL/EMBEDDING_DIM으로만 한다."""
 
 from app.llm.base import Embedder
 
