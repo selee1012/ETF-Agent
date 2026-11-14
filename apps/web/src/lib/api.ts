@@ -1,5 +1,6 @@
 // FastAPI 클라이언트. 주소는 VITE_API_BASE_URL, 토큰은 localStorage에 둔다(개발용 local 인증).
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(
+// .env.example을 복사만 하면 빈 값이 들어오므로 ??가 아니라 ||로 기본 주소를 쓴다.
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(
   /\/$/,
   '',
 )
