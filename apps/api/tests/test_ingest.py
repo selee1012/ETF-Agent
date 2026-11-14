@@ -57,6 +57,9 @@ def test_resolve_target_prefers_repo_root(tmp_path: Path, monkeypatch: pytest.Mo
     assert resolve_target("README.md") == REPO_ROOT / "README.md"  # 실행 위치의 같은 이름보다 먼저
     (tmp_path / "only-here.md").write_text("# x")
     assert resolve_target("only-here.md") == Path("only-here.md")
+    # 실행 위치를 명시하면 레포 루트로 바꾸지 않는다(`.`이 레포 전체가 되지 않게).
+    assert resolve_target(".") == Path(".")
+    assert resolve_target("./README.md") == Path("README.md")
 
 
 def test_resolve_target_rejects_missing_path() -> None:

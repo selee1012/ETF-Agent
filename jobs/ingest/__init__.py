@@ -21,11 +21,14 @@ def source_uri_for(path: Path) -> str:
 def resolve_target(raw: str) -> Path:
     """상대 경로는 레포 루트 기준으로 먼저 찾고, 없으면 실행 위치 기준으로 찾는다. 없으면 FileNotFoundError.
 
+    `.`, `./docs`, `../docs`처럼 실행 위치를 명시한 경로는 실행 위치 기준으로만 찾는다.
+
     make ingest는 컨테이너의 apps/api에서 실행되므로 `data/samples/docs` 같은 레포 기준 경로가
     그대로는 없는 경로가 된다. 없는 경로는 빈 목록이 되어 아무것도 적재하지 않고 성공으로 끝났다.
     """
     path = Path(raw)
-    candidates = [path] if path.is_absolute() else [REPO_ROOT / path, path]
+    from_cwd = raw in ("", ".", "..") or raw.startswith(("./", "../"))
+    candidates = [path] if path.is_absolute() or from_cwd else [REPO_ROOT / path, path]
     for candidate in candidates:
         if candidate.exists():
             return candidate
