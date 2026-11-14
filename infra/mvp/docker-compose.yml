@@ -1,5 +1,7 @@
-# MVP 런타임: EC2에서 `api` + `cloudflared`, 로컬은 `--profile dev`로 postgres를 추가한다.
-# 사용: 루트에서 make dev / make down (직접 실행 시 --env-file .env 필요)
+# MVP 런타임: 서버 한 대에서 `api` + `cloudflared`를 띄운다. DB를 같은 서버에 둘 때는 `--profile dev`로 postgres를 추가한다.
+# Makefile 타깃은 없다(make up/down은 infra/local용). 루트에서 직접 실행한다:
+#   docker compose -f infra/mvp/docker-compose.yml --env-file .env [--profile dev] up -d
+#   docker compose -f infra/mvp/docker-compose.yml --env-file .env [--profile dev] down
 name: etf-agent
 
 services:
@@ -21,9 +23,6 @@ services:
     ports:
       # 외부 노출은 cloudflared가 담당하므로 호스트 루프백에만 바인딩한다.
       - "127.0.0.1:8000:8000"
-    extra_hosts:
-      # 호스트에서 네이티브로 도는 Ollama 접근용(리눅스 EC2 포함)
-      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -72,22 +71,6 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # 선택: 컨테이너 Ollama (make dev-llm). GPU 없는 맥에서는 네이티브 Ollama가 훨씬 빠르다.
-  ollama:
-    profiles: ["ollama"]
-    image: ollama/ollama:0.40.16
-    ports:
-      - "127.0.0.1:11434:11434"
-    volumes:
-      - ollama:/root/.ollama
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
 volumes:
   pgdata:
-  ollama:
   storage:
