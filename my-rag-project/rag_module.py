@@ -336,7 +336,7 @@ class RagAnswer:
 
 @dataclass
 class RagPipeline:
-    """1~5단계로 만든 검색기를 들고 있다가, 질문마다 6~8단계를 실행한다."""
+    """1~4단계로 만든 벡터 저장소를 들고 있다가, 질문마다 5~8단계를 실행한다."""
 
     vectorstore: FAISS
     files: list[str]
