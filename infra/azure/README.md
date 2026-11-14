@@ -88,7 +88,7 @@ FALLBACK_ALLOWED_INTENTS=faq
 
 - 프로젝트를 만들 때 리전을 **Northeast Asia (Seoul)**, `ap-northeast-2`로 고른다. Azure koreacentral도 서울이라 API ↔ DB 지연이 작다.
 - `DATABASE_URL`은 **Session pooler(5432)** 주소를 `postgresql+asyncpg://` 스킴으로 넣는다
-  (Transaction pooler는 asyncpg prepared statement와 충돌한다). pgvector·pg_trgm은 마이그레이션이 `extensions` 스키마에 만든다.
+  (Transaction pooler는 asyncpg prepared statement와 충돌한다). pgvector·pg_trgm은 마이그레이션이 `extensions` 스키마에 만든다(이 스키마가 없는 로컬·Azure에서는 기본 스키마).
 - 무료 플랜은 DB 500MB이고 **1주일 동안 사용이 없으면 일시 중지**된다(데이터는 남고 수동 복구). 데모·개발은 무료로,
   상시 운영은 Pro로 올린다. 요금·한도는 바뀔 수 있으니 supabase.com/pricing에서 확인한다.
 - Supabase는 Azure 밖(AWS 서울)에 있어 연결이 공용 인터넷(TLS)을 지난다. VNet 안에만 DB를 둬야 하는 보안 요건이 생기면 아래 대안으로 옮긴다.
@@ -117,10 +117,10 @@ API는 어느 방식이든 **Bearer JWT를 검증**한다(`app/auth/base.py`의 
 ## 파일 저장 — Blob에 원본, DB에는 주소만
 
 - 원본 파일(PDF 등)은 Blob 컨테이너에 두고, Postgres `documents.source_uri`에 주소(`azure_blob://uploads/…`)만 남긴다.
-  지금 로컬 구조(`local://uploads/…`)와 같아서 어댑터만 구현하면 된다.
+  운영 화면 업로드의 지금 로컬 구조(`local://uploads/…`)와 같아서 어댑터만 구현하면 된다(`make ingest`로 넣은 문서는 `file://…`이고 저장소를 거치지 않는다).
 - 질문에 답할 때 읽는 것은 원본이 아니라 DB의 `chunks`(본문 조각·임베딩)다. 자주 조회되는 내용은 이미 DB에 있으므로
-  원본을 DB에 중복 저장할 필요가 없다. 원본은 다시 ingest하거나 내려받을 때만 Blob에서 읽는다.
-- Blob에만 두고 DB 기록을 없애는 방식은 쓰지 않는다. 목록·검색·재-ingest 갱신이 `source_uri` 기준으로 동작한다.
+  원본을 DB에 중복 저장할 필요가 없다. 원본은 다시 ingest하거나 내려받을 때만 Blob에서 읽으면 되는데, 이 두 기능은 아직 없다(지금 저장소를 읽는 곳은 업로드 실패 시 되돌리기뿐이다).
+- Blob에만 두고 DB 기록을 없애는 방식은 쓰지 않는다. 목록·검색은 DB의 문서·청크를 읽고, 재-ingest는 `source_uri`로 같은 문서를 찾아 갱신한다.
 - 컨테이너는 비공개로 두고, API는 관리 ID(Storage Blob Data Contributor)로 접근한다. 사용자에게 원본을 내려줄 때는 만료 시간이 짧은 SAS URL을 쓴다.
 
 ## 배포 시 함께 바꿀 값
