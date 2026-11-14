@@ -119,6 +119,16 @@ async def test_judge_unparsed_twice_gives_safe_answer(deps: AgentDeps, fake_llm:
     assert "문의" in st["answer"] and not st["sources"]
 
 
+async def test_judge_missing_solicitation_verdict_does_not_pass(
+    deps: AgentDeps, fake_llm: FakeLLM
+) -> None:
+    """권유 판정이 빠진 응답은 통과가 아니라 해석 실패다(두 번 연속이면 안전 답변)."""
+    fake_llm.push("judge", '{"grounded": true}', '{"grounded": true}')
+    st = await run_graph(deps, request_id="t", query="괴리율이 뭐야?")
+    assert st["verdict"] == "llm_unavailable"
+    assert st["guard_history"] == [["judge:unparsed"]]
+
+
 async def test_judge_unavailable_gives_safe_answer_and_is_not_cached(
     deps: AgentDeps, fake_llm: FakeLLM
 ) -> None:
@@ -150,7 +160,7 @@ async def test_ungrounded_number_in_summary_blocks(deps: AgentDeps, fake_llm: Fa
         ('{"grounded": false, "is_solicitation": false}', (False, False)),
         ('{"grounded": "false", "is_solicitation": "false"}', (False, False)),
         ('{"grounded": "True", "is_solicitation": "no"}', (True, False)),
-        ('{"grounded": 1}', (True, False)),
+        ('{"grounded": 1, "is_solicitation": 0}', (True, False)),
     ],
 )
 def test_parse_judge_reads_string_booleans(raw: str, expected: tuple[bool, bool]) -> None:
@@ -161,7 +171,13 @@ def test_parse_judge_reads_string_booleans(raw: str, expected: tuple[bool, bool]
 
 @pytest.mark.parametrize(
     "raw",
-    ['{"grounded": "maybe"}', '{"grounded": null}', '{"grounded": true, "is_solicitation": []}'],
+    [
+        '{"grounded": "maybe", "is_solicitation": false}',
+        '{"grounded": null, "is_solicitation": false}',
+        '{"grounded": true, "is_solicitation": []}',
+        '{"grounded": true}',  # 권유 판정 누락
+        '{"is_solicitation": false}',  # 근거 판정 누락
+    ],
 )
 def test_parse_judge_rejects_unreadable_values(raw: str) -> None:
     assert parse_judge(raw) is None

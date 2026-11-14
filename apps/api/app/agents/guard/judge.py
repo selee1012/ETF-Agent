@@ -40,10 +40,11 @@ def parse_judge(text: str) -> dict[str, Any] | None:
         data = json.loads(m.group(0))
     except json.JSONDecodeError:
         return None
-    if not isinstance(data, dict) or "grounded" not in data:
+    # 두 판정이 모두 있어야 한다. 빠진 판정을 '문제없음'으로 보면 검증하지 않은 답변이 통과한다.
+    if not isinstance(data, dict) or "grounded" not in data or "is_solicitation" not in data:
         return None
     grounded = _as_bool(data["grounded"])
-    solicitation = _as_bool(data.get("is_solicitation", False))
+    solicitation = _as_bool(data["is_solicitation"])
     if grounded is None or solicitation is None:
         return None  # 값을 해석하지 못하면 판정 실패로 본다(통과시키지 않는다)
     issues = data.get("issues") or []
