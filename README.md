@@ -12,7 +12,7 @@ ETF 정보와 공시를 조회하고 문서 검색을 바탕으로 질문에 답
 - 운영 화면에서 트레이스·피드백 확인, 문서 업로드와 검색 확인
 - 로컬 전용 일반 대화 모드와 OpenAI 호환 모델·fake 모델 선택
 
-요청은 대체로 `질문 전처리 → 의도 분류 및 문서 검색 → 자료 수집 → 답변 합성 → 가드 → SSE 응답` 순서로 처리합니다. 고위험·추천 등 일부 질문은 고정 안내로 분기합니다. SSE는 검증이 끝난 답변을 나누어 전송합니다.
+요청은 대체로 `질문 전처리 → 의도 분류 및 문서 검색 → 자료 수집 → 답변 합성 → 가드 → SSE 응답` 순서로 처리합니다. 고위험·추천 등 일부 질문은 고정 안내로 분기합니다. SSE는 가드를 통과한 답변을 나누어 전송합니다. 검증 모델은 근거 문서로 생성한 답변에만 호출합니다. DB 표만으로 만든 답변과 일반 대화 답변은 규칙 검사만 거치고, 캐시된 FAQ 답변은 필수 고지만 다시 확인하며, 고정 안내는 가드를 거치지 않습니다.
 
 ## 빠른 시작
 
@@ -41,7 +41,7 @@ cp .env.local.example .env.local
 
 기본 모델은 `gpt-5.4-nano`, 임베딩은 `text-embedding-3-small`(1024차원)입니다. 질문과 검색된 문서 일부가 모델 제공자에게 전송됩니다. `.env.local.example`은 로컬 일반 대화 모드를 켭니다. 끄려면 `.env.local`에서 `GENERAL_CHAT_ENABLED=false`로 설정하세요.
 
-설정 변경 후 `./scripts/run-local.sh`를 다시 실행합니다. 로그는 `./scripts/run-local.sh logs`, 종료는 `./scripts/run-local.sh down`으로 확인하거나 실행할 수 있습니다. fake와 실제 임베딩을 전환할 때는 해당 실행 스크립트로 문서를 다시 적재하세요.
+설정 변경 후 `./scripts/run-local.sh`를 다시 실행합니다. 로그는 `./scripts/run-local.sh logs`, 종료는 `./scripts/run-local.sh down`으로 확인하거나 실행할 수 있습니다. fake와 실제 임베딩을 전환할 때는 해당 실행 스크립트로 문서를 다시 적재하세요. 스크립트는 샘플 문서만 다시 임베딩하므로 운영 화면에서 올린 문서는 다시 업로드해야 합니다.
 
 ## 자주 쓰는 명령
 
@@ -70,9 +70,9 @@ make down                        # 컨테이너 종료, 볼륨 유지
 | --- | --- |
 | `DATABASE_URL`, `POSTGRES_*` | PostgreSQL 연결 및 로컬 DB 설정 |
 | `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL` | 생성 모델 설정 (`fake` 또는 `openai_compat`) |
-| `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_DIM` | 임베딩 설정. DB 벡터 차원은 1024 |
+| `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_DIM` | 임베딩 설정. DB 벡터 컬럼 차원은 마이그레이션할 때의 `EMBEDDING_DIM`(기본 1024)으로 정해지므로 이후에는 바꾸지 않음 |
 | `GENERAL_CHAT_ENABLED` | 일반 대화 활성화. `APP_ENV=local`에서만 허용 |
-| `ADMIN_EMAILS`, `LOCAL_JWT_SECRET` | 개발용 관리자 이메일과 JWT 서명 키 |
+| `ADMIN_EMAILS`, `LOCAL_JWT_SECRET` | 개발용 관리자 이메일과 JWT 서명 키. 관리자 역할은 로그인할 때 토큰에 담기므로 목록 변경은 다시 로그인한 뒤 반영 |
 | `METRICS_TOKEN` | `/metrics` 수집용 Bearer 토큰. 비우면 `APP_ENV=local`에서만 열림 |
 | `DATA_GO_KR_API_KEY`, `DART_API_KEY` | 외부 데이터 수집 키 |
 
@@ -84,7 +84,7 @@ make down                        # 컨테이너 종료, 볼륨 유지
 | --- | --- |
 | `GET /health`, `GET /metrics` | 상태 확인과 Prometheus 메트릭(`METRICS_TOKEN` 설정 시 Bearer 토큰 필요) |
 | `POST /auth/dev-login`, `GET/PATCH /auth/me` | 로컬 로그인과 설명 수준 설정 |
-| `POST /chat` | 채팅 SSE (`status` → `token` → `sources` → `done`) |
+| `POST /chat` | 채팅 SSE (`status` → `token` → `sources` → `done`). 대화 저장이나 답변 작업이 실패하면 `done` 없이 `error`로 끝남 |
 | `GET/DELETE /history`, `GET/DELETE /history/{id}` | 대화 조회·삭제 |
 | `POST /feedback` | 좋아요·싫어요·정정 피드백 |
 | `/admin/traces`, `/admin/feedback`, `/admin/documents`, `/admin/search` | 관리자 전용 운영 API |
@@ -104,6 +104,8 @@ make down                        # 컨테이너 종료, 볼륨 유지
 | [`apps/api/`](apps/api/) | FastAPI, 에이전트, RAG, 저장소, 마이그레이션 및 테스트 |
 | [`apps/web/`](apps/web/) | React 채팅·운영 화면 |
 | [`jobs/`](jobs/) | 샘플 시드, 문서 적재, 외부 데이터 수집 |
+| [`ml/`](ml/) | 오프라인 평가(`make eval`) |
+| [`scripts/`](scripts/) | 실행 스크립트와 예제 질문 실행 |
 | [`data/`](data/) | 샘플 데이터와 평가 데이터셋 |
 | [`prompts/`](prompts/) | 시스템 프롬프트, 가드 규칙과 답변 템플릿 |
 | [`infra/`](infra/) | 로컬 Docker 및 배포 설정 예시 |
