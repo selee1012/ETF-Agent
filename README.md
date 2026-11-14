@@ -58,7 +58,7 @@ make down                        # 컨테이너 종료, 볼륨 유지
 
 테스트는 `TEST_DATABASE_URL` 또는 `POSTGRES_*`로 지정한 서버에 별도의 `_test` DB를 만들며, **같은 이름의 기존 테스트 DB를 삭제하고 다시 생성합니다**. 실행 전에 대상 서버를 확인하세요.
 
-직접 스택을 관리할 때는 `make up`, `make migrate`, `make seed`, `make ingest`, `make collect`를 사용합니다. `make ingest ARGS="경로 --force"`는 문서를 강제로 재적재합니다. `make help`에서 전체 명령을 볼 수 있습니다.
+직접 스택을 관리할 때는 `make up`, `make migrate`, `make seed`, `make ingest`, `make collect`를 사용합니다. `make ingest ARGS="data/samples/docs --force"`는 문서를 강제로 재적재합니다. 경로는 레포 루트 기준 상대 경로(컨테이너 안에서는 `/workspace` 아래)로 주며, 없는 경로면 오류로 끝납니다. `make help`에서 전체 명령을 볼 수 있습니다.
 
 > **데이터를 갱신한 뒤에는 `make restart`로 API를 재시작하세요.** `make seed`, `make ingest`, `make collect`는 API와 다른 프로세스에서 실행되어 API의 메모리 캐시를 비우지 못합니다. 재시작하지 않으면 이전 FAQ 답변·시세는 최대 1시간, ETF 정보는 최대 1일 동안 그대로 나올 수 있습니다. 실행 스크립트(`run-fake.sh`, `run-local.sh`)로 처음 띄울 때와 운영 화면에서 문서를 업로드할 때는 필요 없습니다.
 

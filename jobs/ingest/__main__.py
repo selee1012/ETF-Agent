@@ -2,13 +2,12 @@
 
 import argparse
 import asyncio
-from pathlib import Path
 
 from app.db import dispose_engine, get_sessionmaker
 from app.llm import build_embedder
 from app.llm.base import LLMError
 from app.settings import REPO_ROOT, get_settings
-from jobs.ingest import ingest_paths
+from jobs.ingest import ingest_paths, resolve_target
 
 
 async def main() -> int:
@@ -18,13 +17,22 @@ async def main() -> int:
     parser.add_argument("--doc-type", default="faq")
     args = parser.parse_args()
 
+    try:
+        targets = [resolve_target(p) for p in args.paths]
+    except FileNotFoundError as e:
+        print(
+            f"경로를 찾을 수 없습니다: {e}\n"
+            f"→ 레포 루트({REPO_ROOT}) 기준 상대 경로나 컨테이너 안의 절대 경로를 주세요."
+        )
+        return 1
+
     settings = get_settings()
     embedder = build_embedder(settings)
     print(f"임베딩: provider={settings.embedding_provider} model={embedder.model}")
     try:
-        for p in args.paths:
+        for target in targets:
             for r in await ingest_paths(
-                get_sessionmaker(), embedder, Path(p), doc_type=args.doc_type, force=args.force
+                get_sessionmaker(), embedder, target, doc_type=args.doc_type, force=args.force
             ):
                 n = "-" if r.chunks < 0 else r.chunks
                 print(f"  [{r.status:9}] {r.title}  chunks={n}  ({r.source_uri})")

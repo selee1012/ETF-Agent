@@ -1,10 +1,14 @@
 """ingest: 문단 청킹(겹침), 재적재 시 갱신 (P1-DA-03)."""
 
+import pytest
+
 from app.db import get_sessionmaker
 from app.llm.fake import FakeEmbedder
 from app.rag.chunker import chunk_sections, parse_markdown
 from app.rag.ingest import ingest_bytes
 from app.repositories import documents as doc_repo
+from app.settings import REPO_ROOT
+from jobs.ingest import resolve_target
 
 
 def test_markdown_chunking_with_overlap() -> None:
@@ -40,3 +44,13 @@ async def test_reingest_updates_document() -> None:
         rows = await doc_repo.load_chunks(s, [c for c in range(1, 10_000)])
     contents = [c.content for c, _ in rows.values() if c.document_id == doc.id]
     assert sorted(contents) == ["## x\nsecond", "## y\nthird"]
+
+
+def test_resolve_target_falls_back_to_repo_root() -> None:
+    """실행 위치(apps/api)에 없는 레포 기준 경로도 찾는다(make ingest ARGS="data/samples/docs")."""
+    assert resolve_target("data/samples/docs") == REPO_ROOT / "data/samples/docs"
+
+
+def test_resolve_target_rejects_missing_path() -> None:
+    with pytest.raises(FileNotFoundError):
+        resolve_target("no/such/dir")
