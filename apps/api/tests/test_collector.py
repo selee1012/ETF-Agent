@@ -3,8 +3,13 @@
 from datetime import date
 from decimal import Decimal
 
+import httpx
+import pytest
+
 from app.db import get_sessionmaker
 from jobs.collector import (
+    CollectorError,
+    check_data_go_kr,
     collect_dart,
     collect_etf_prices,
     match_dart_rows,
@@ -76,3 +81,26 @@ def test_match_dart_rows() -> None:
         (None, "샘플전자"),
     ]
     assert out[0]["url"].endswith("rcpNo=1")
+
+
+def test_data_go_kr_application_error_is_not_empty_result() -> None:
+    """HTTP 200에 실린 오류 코드는 '0건'이 아니라 실패다."""
+    check_data_go_kr({"response": {"header": {"resultCode": "00"}, "body": {"totalCount": 0}}})
+    with pytest.raises(CollectorError, match="resultCode=30"):
+        check_data_go_kr(
+            {"response": {"header": {"resultCode": "30", "resultMsg": "SERVICE KEY ERROR"}}}
+        )
+    with pytest.raises(CollectorError):
+        check_data_go_kr({"error": "unexpected"})
+
+
+async def test_collect_etf_prices_raises_on_error_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = {"response": {"header": {"resultCode": "22", "resultMsg": "LIMITED"}, "body": {}}}
+
+    async def fake_get(self: httpx.AsyncClient, url: str, **kwargs: object) -> httpx.Response:
+        return httpx.Response(200, json=payload, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    async with get_sessionmaker()() as s:
+        with pytest.raises(CollectorError, match="resultCode=22"):
+            await collect_etf_prices(s, "key", bas_dt=date(2026, 11, 11), http_timeout=1)

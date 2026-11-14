@@ -64,6 +64,22 @@ async def _get_json(client: httpx.AsyncClient, url: str, params: dict[str, Any])
         raise CollectorError(f"요청 실패({type(e).__name__}): {url}") from e
 
 
+def check_data_go_kr(payload: dict) -> None:
+    """공공데이터포털은 키 오류·한도 초과 같은 응용 오류도 HTTP 200으로 준다. 헤더의 결과 코드로 가린다.
+
+    확인하지 않으면 오류 응답이 '0건'으로 읽혀 수집이 성공한 것처럼 끝난다.
+    """
+    response = payload.get("response") if isinstance(payload, dict) else None
+    if not isinstance(response, dict):
+        raise CollectorError("공공데이터포털 응답 형식이 예상과 다릅니다(response 없음)")
+    header = response.get("header") or {}
+    code = str(header.get("resultCode", "00"))
+    if code != "00":
+        raise CollectorError(
+            f"공공데이터포털 오류 resultCode={code} {header.get('resultMsg', '')}".strip()
+        )
+
+
 def parse_data_go_kr_items(payload: dict) -> list[dict[str, Any]]:
     body = payload.get("response", {}).get("body", {})
     items = body.get("items", {}) or {}
@@ -125,6 +141,7 @@ async def collect_etf_prices(
                     "basDt": bas_dt.strftime("%Y%m%d"),
                 },
             )
+            check_data_go_kr(payload)
             batch = parse_data_go_kr_items(payload)
             items.extend(batch)
             total = int(payload.get("response", {}).get("body", {}).get("totalCount", 0) or 0)
