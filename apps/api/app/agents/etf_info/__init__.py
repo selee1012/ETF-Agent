@@ -14,6 +14,7 @@ SEARCH_LIMIT = 10
 async def run(state: GraphState, deps: AgentDeps) -> AgentResult:
     await deps.emit(NAME, "ETF 정보를 찾는 중")
     tickers = [e.ticker for e in state.get("entities") or []][:3]
+    notes: list[str] = []
     async with deps.maker() as session:
         if tickers:
             etfs = await price_lookup.etfs(session, tickers)
@@ -44,11 +45,15 @@ async def run(state: GraphState, deps: AgentDeps) -> AgentResult:
             etfs = await etf_search.search(session, filters, limit=SEARCH_LIMIT + 1)
             more = len(etfs) > SEARCH_LIMIT
             etfs = etfs[:SEARCH_LIMIT]
+            if note := await etf_search.unverifiable_note(session, filters):
+                notes.append(note)
             if not etfs:
                 return AgentResult(
                     agent=NAME,
                     found=False,
-                    content=f"조건({filters.describe()})에 맞는 ETF가 없습니다.",
+                    content=" ".join(
+                        [f"조건({filters.describe()})에 맞는 ETF가 없습니다.", *notes]
+                    ),
                 )
             table = compare.list_table(etfs)
             title = f"검색 결과({filters.describe()}) {len(etfs)}건"
@@ -65,7 +70,7 @@ async def run(state: GraphState, deps: AgentDeps) -> AgentResult:
         as_of_line = f"기준일: {as_of} (일별 데이터)"
     else:
         as_of_line = "출처: ETF 마스터(샘플)"
-    data = f"**{title}**\n\n{table}\n\n{as_of_line}"
+    data = "\n\n".join([f"**{title}**", table, *notes, as_of_line])
     source = Source(
         title="ETF 마스터·일별 시세 DB(샘플)",
         location=f"기준일 {as_of}" if as_of else None,

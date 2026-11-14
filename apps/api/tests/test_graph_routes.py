@@ -1,12 +1,14 @@
 """의도별 경로: etf_info, faq, disclosure, high_risk, recommendation, out_of_scope (P1-AG-02~06)."""
 
 import pytest
+from sqlalchemy import delete
 
 from app.agents.graph import run_graph
 from app.agents.state import AgentDeps
 from app.llm.base import LLMError
 from app.llm.fake import FakeLLM
 from app.repositories import etf as etf_repo
+from app.repositories.models import EtfMaster
 from app.tools import price_lookup
 
 
@@ -207,3 +209,22 @@ async def test_truncated_search_result_says_more_exist(deps: AgentDeps) -> None:
 
     small = await ask(deps, "총보수 0.05% 이하 ETF 찾아줘")
     assert "건만 표시" not in small["answer"]
+
+
+async def test_search_discloses_products_it_could_not_check(deps: AgentDeps) -> None:
+    """분류·총보수가 없는(외부 수집) 상품은 조건 검색에서 빠진다. 뺐다는 사실을 결과에 밝힌다."""
+    row = {"ticker": "999999", "name": "수집된 미분류 ETF", "aliases": [], "source": "data_go_kr"}
+    async with deps.maker() as s:
+        await etf_repo.upsert_etfs(s, [row])
+        await s.commit()
+    try:
+        st = await ask(deps, "총보수 0.1% 이하 해외 주식 ETF 찾아줘")
+        assert "수집된 미분류 ETF" not in st["answer"]
+        assert "분류·총보수 정보가 없는 상품 1개는 조건을 확인할 수 없어" in st["answer"]
+        none = await ask(deps, "총보수 0.001% 이하 ETF 찾아줘")
+        assert "맞는 ETF가 없습니다" in none["answer"]
+        assert "총보수 정보가 없는 상품 1개" in none["answer"]
+    finally:
+        async with deps.maker() as s:
+            await s.execute(delete(EtfMaster).where(EtfMaster.ticker == "999999"))
+            await s.commit()

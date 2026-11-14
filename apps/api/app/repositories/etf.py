@@ -103,6 +103,19 @@ async def search_etfs(
     return list((await session.scalars(stmt.limit(limit))).all())
 
 
+async def count_missing(session: AsyncSession, *, category: bool, fee: bool) -> int:
+    """분류·총보수 조건을 확인할 수 없는(값이 비어 있는) 상품 수. 조건 검색은 이런 상품을 결과에서 뺀다."""
+    conds = []
+    if category:
+        conds.append(EtfMaster.category.is_(None))
+    if fee:
+        conds.append(EtfMaster.total_expense_ratio.is_(None))
+    if not conds:
+        return 0
+    stmt = select(func.count()).select_from(EtfMaster).where(or_(*conds))
+    return int(await session.scalar(stmt) or 0)
+
+
 async def latest_prices(session: AsyncSession, tickers: Sequence[str]) -> dict[str, PriceDaily]:
     """티커별 최신 일별 시세 1행."""
     if not tickers:

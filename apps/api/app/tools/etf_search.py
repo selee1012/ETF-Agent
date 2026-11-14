@@ -166,3 +166,16 @@ async def search(session: AsyncSession, f: EtfFilters, limit: int = 10) -> list[
         min_fee_exclusive=f.min_exclusive,
         limit=limit,
     )
+
+
+async def unverifiable_note(session: AsyncSession, f: EtfFilters) -> str:
+    """조건에 쓰인 값(분류·총보수)이 비어 있어 확인하지 못하고 뺀 상품이 있으면 그 사실을 알리는 문장.
+
+    외부 수집으로 들어온 상품은 분류·총보수가 없다. 말없이 빼면 '조건에 맞는 상품은 이것뿐'으로 읽힌다.
+    """
+    by_category, by_fee = bool(f.category or f.region), f.has_fee()
+    n = await etf_repo.count_missing(session, category=by_category, fee=by_fee)
+    if not n:
+        return ""
+    fields = "·".join(x for x, on in (("분류", by_category), ("총보수", by_fee)) if on)
+    return f"{fields} 정보가 없는 상품 {n}개는 조건을 확인할 수 없어 결과에서 뺐습니다."
