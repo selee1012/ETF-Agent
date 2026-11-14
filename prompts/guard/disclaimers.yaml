@@ -17,8 +17,8 @@ required:
   etf_info: [general, principal_loss, data_as_of, sample_data]
   faq: [general]
   disclosure: [general, disclosure_source, sample_data]
-  high_risk: []        # 템플릿 자체에 포함
-  recommendation: []   # 템플릿 자체에 포함
+  high_risk: []        # 필요한 고지는 템플릿 본문에 직접 쓴다
+  recommendation: []   # 필요한 고지는 템플릿 본문에 직접 쓴다
   out_of_scope: []
   blocked: []
-  general: []          # 일반 대화(로컬 전용): 근거 없음 표시는 본문에 붙는다
+  general: []          # 일반 대화(로컬 전용): 근거 없음 표시는 FAQ 근거가 없어 일반 답변으로 넘어갈 때만 본문에 붙는다
