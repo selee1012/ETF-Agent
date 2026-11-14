@@ -1,8 +1,11 @@
 """운영 화면 API: 권한, 트레이스·피드백 조회, 문서 업로드 → 검색 반영 (P1-API-04)."""
 
+import asyncio
+
 from fastapi import FastAPI
 from httpx import AsyncClient
 
+from app.llm.fake import FakeEmbedder
 from app.storage.azure_blob import AzureBlobStorage
 from tests.sse import parse_sse
 
@@ -108,3 +111,51 @@ async def test_upload_with_stub_storage_returns_501(
     resp = await client.post("/admin/documents", files=files, headers=admin_headers)
     assert resp.status_code == 501, resp.text
     assert "구현하지 않았다" in resp.json()["detail"]
+
+
+class _SlowEmbedder(FakeEmbedder):
+    """임베딩 구간의 시작·끝을 기록한다. 두 업로드가 겹치면 start가 연달아 찍힌다."""
+
+    def __init__(self, dim: int, events: list[str]) -> None:
+        super().__init__(dim=dim)
+        self.events = events
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        self.events.append("start")
+        await asyncio.sleep(0.05)
+        self.events.append("end")
+        return await super().embed(texts)
+
+
+async def _upload_pair(client: AsyncClient, headers: dict, names: tuple[str, str]) -> None:
+    bodies = [f"# [샘플] 동시 업로드 {i}\n\n## a\n\n본문 {i}".encode() for i in (1, 2)]
+    responses = await asyncio.gather(
+        *(
+            client.post(
+                "/admin/documents", files={"file": (n, b, "text/markdown")}, headers=headers
+            )
+            for n, b in zip(names, bodies, strict=True)
+        )
+    )
+    assert [r.status_code for r in responses] == [201, 201]
+
+
+async def test_same_name_uploads_run_one_at_a_time(
+    client: AsyncClient, app: FastAPI, admin_headers: dict
+) -> None:
+    """같은 이름의 업로드가 겹치면 원본과 색인이 어긋난다. 하나가 끝난 뒤 다음이 시작한다."""
+    events: list[str] = []
+    c = app.state.container
+    c.embedder = _SlowEmbedder(c.settings.embedding_dim, events)
+    await _upload_pair(client, admin_headers, ("race.md", "race.md"))
+    assert events == ["start", "end", "start", "end"]
+
+
+async def test_different_name_uploads_do_not_wait(
+    client: AsyncClient, app: FastAPI, admin_headers: dict
+) -> None:
+    events: list[str] = []
+    c = app.state.container
+    c.embedder = _SlowEmbedder(c.settings.embedding_dim, events)
+    await _upload_pair(client, admin_headers, ("race-a.md", "race-b.md"))
+    assert events == ["start", "start", "end", "end"]

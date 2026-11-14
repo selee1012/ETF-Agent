@@ -7,6 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
+from sqlalchemy import text
 
 from app.deps import AdminDep, ContainerDep
 from app.llm.base import LLMError
@@ -19,6 +20,9 @@ from app.repositories import traces as trace_repo
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+# 같은 파일 이름의 업로드를 한 번에 하나씩 처리하는 잠금. 트랜잭션이 끝나면(세션을 닫으면) 풀린다.
+# DB 잠금이라 API 인스턴스가 여러 개여도 통한다. 다른 이름의 업로드는 서로 기다리지 않는다.
+_UPLOAD_LOCK = text("SELECT pg_advisory_xact_lock(hashtext(:key))")
 
 
 class TraceOut(BaseModel):
@@ -110,31 +114,35 @@ async def upload_document(
     # 적재가 실패하면 저장소를 원래대로 되돌린다. 그러지 않으면 같은 이름의 정상 문서 원본이
     # 실패한 파일로 덮인 채 남아 저장소와 색인(DB 청크)이 어긋난다.
     key = f"uploads/{filename}"
-    try:
-        previous = await c.storage.get(key) if await c.storage.exists(key) else None
-        stored = await c.storage.put(key, data, file.content_type)
-    except NotImplementedError as e:  # 스텁 저장소(STORAGE_PROVIDER=supabase·azure_blob)
-        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, str(e)) from e
-    try:
-        async with c.maker() as session:
-            result = await ingest_bytes(
-                session,
-                c.embedder,
-                source_uri=stored.uri,
-                filename=filename,
-                data=data,
-                doc_type=doc_type,
-            )
-    except Exception as e:
-        if previous is None:
-            await c.storage.delete(key)
-        else:
-            await c.storage.put(key, previous, file.content_type)
-        if isinstance(e, ValueError):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
-        if isinstance(e, LLMError):
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"임베딩 실패: {e}") from e
-        raise
+    # 원본 덮어쓰기 → 적재 → (실패 시) 복원이 끝날 때까지 같은 이름의 다른 업로드를 기다리게 한다.
+    # 겹치면 한쪽의 복원이 다른 쪽의 성공한 원본을 덮거나, 저장 순서와 DB 반영 순서가 달라진다.
+    async with c.maker() as lock:
+        await lock.execute(_UPLOAD_LOCK, {"key": key})
+        try:
+            previous = await c.storage.get(key) if await c.storage.exists(key) else None
+            stored = await c.storage.put(key, data, file.content_type)
+        except NotImplementedError as e:  # 스텁 저장소(STORAGE_PROVIDER=supabase·azure_blob)
+            raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, str(e)) from e
+        try:
+            async with c.maker() as session:
+                result = await ingest_bytes(
+                    session,
+                    c.embedder,
+                    source_uri=stored.uri,
+                    filename=filename,
+                    data=data,
+                    doc_type=doc_type,
+                )
+        except Exception as e:
+            if previous is None:
+                await c.storage.delete(key)
+            else:
+                await c.storage.put(key, previous, file.content_type)
+            if isinstance(e, ValueError):
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
+            if isinstance(e, LLMError):
+                raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"임베딩 실패: {e}") from e
+            raise
     return {
         "document_id": result.document_id,
         "title": result.title,
