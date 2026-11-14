@@ -53,7 +53,9 @@ async def ingest_bytes(
     data: bytes,
     doc_type: str = "faq",
     force: bool = False,
+    commit: bool = True,
 ) -> IngestResult:
+    """commit=False면 커밋과 FAQ 캐시 비우기를 호출 측이 한다(같은 트랜잭션에서 더 할 일이 있을 때)."""
     content_hash = hashlib.sha256(data).hexdigest()
     existing = await doc_repo.get_document_by_uri(session, source_uri)
     if (
@@ -81,7 +83,8 @@ async def ingest_bytes(
         meta={"filename": PurePath(filename).name},
         chunks=[(p.content, v, p.meta) for p, v in zip(pieces, vectors, strict=True)],
     )
-    await session.commit()
-    cache.faq_cache().clear()  # 검색 결과가 바뀌었으니 FAQ 답변 캐시를 비운다
+    if commit:
+        await session.commit()
+        cache.faq_cache().clear()  # 검색 결과가 바뀌었으니 FAQ 답변 캐시를 비운다
     status = "created" if existing is None else "updated"
     return IngestResult(doc.id, title, source_uri, status, len(pieces))

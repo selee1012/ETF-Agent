@@ -2,6 +2,7 @@
 
 import asyncio
 
+import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
@@ -159,3 +160,68 @@ async def test_different_name_uploads_do_not_wait(
     c.embedder = _SlowEmbedder(c.settings.embedding_dim, events)
     await _upload_pair(client, admin_headers, ("race-a.md", "race-b.md"))
     assert events == ["start", "start", "end", "end"]
+
+
+async def test_many_concurrent_uploads_do_not_exhaust_pool(
+    client: AsyncClient, admin_headers: dict
+) -> None:
+    """업로드 하나가 DB 연결을 둘씩 잡으면 풀(10개)보다 많은 동시 업로드가 서로를 기다리다 모두 실패한다."""
+    responses = await asyncio.wait_for(
+        asyncio.gather(
+            *(
+                client.post(
+                    "/admin/documents",
+                    files={
+                        "file": (
+                            f"pool-{i}.md",
+                            f"# t{i}\n\n## a\n\n본문 {i}".encode(),
+                            "text/markdown",
+                        )
+                    },
+                    headers=admin_headers,
+                )
+                for i in range(12)
+            )
+        ),
+        timeout=20,
+    )
+    assert [r.status_code for r in responses] == [201] * 12
+
+
+class _BlockingEmbedder(FakeEmbedder):
+    def __init__(self, dim: int) -> None:
+        super().__init__(dim=dim)
+        self.started = asyncio.Event()
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        self.started.set()
+        await asyncio.Event().wait()  # 취소될 때까지 멈춘다
+        return []
+
+
+async def test_cancelled_upload_restores_previous_original(
+    client: AsyncClient, app: FastAPI, admin_headers: dict
+) -> None:
+    """원본을 덮어쓴 뒤 적재 중에 요청이 취소돼도 이전 원본으로 되돌리고 잠금을 푼다."""
+    c = app.state.container
+    good = "# [샘플] 취소\n\n## a\n\n처음 본문".encode()
+    files = {"file": ("cancel.md", good, "text/markdown")}
+    assert (
+        await client.post("/admin/documents", files=files, headers=admin_headers)
+    ).status_code == 201
+
+    original, blocking = c.embedder, _BlockingEmbedder(c.settings.embedding_dim)
+    c.embedder = blocking
+    newer = {"file": ("cancel.md", "# [샘플] 취소\n\n## a\n\n바뀐 본문".encode(), "text/markdown")}
+    task = asyncio.create_task(client.post("/admin/documents", files=newer, headers=admin_headers))
+    await asyncio.wait_for(blocking.started.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert await c.storage.get("uploads/cancel.md") == good
+
+    c.embedder = original  # 잠금이 풀렸으므로 같은 이름을 다시 올릴 수 있다
+    again = await asyncio.wait_for(
+        client.post("/admin/documents", files=newer, headers=admin_headers), timeout=5
+    )
+    assert again.status_code == 201 and again.json()["status"] == "updated"

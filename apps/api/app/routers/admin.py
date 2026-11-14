@@ -1,5 +1,6 @@
 """운영 화면 API: 트레이스·피드백 조회, 문서 업로드 → 저장 → ingest, 검색 확인. role=admin만. # P1-API-04"""
 
+import asyncio
 import uuid
 from datetime import datetime
 from pathlib import PurePath
@@ -9,6 +10,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, sta
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from app import cache
 from app.deps import AdminDep, ContainerDep
 from app.llm.base import LLMError
 from app.rag.ingest import SUPPORTED_SUFFIXES, ingest_bytes
@@ -20,8 +22,10 @@ from app.repositories import traces as trace_repo
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
-# 같은 파일 이름의 업로드를 한 번에 하나씩 처리하는 잠금. 트랜잭션이 끝나면(세션을 닫으면) 풀린다.
+# 같은 파일 이름의 업로드를 한 번에 하나씩 처리하는 잠금. 트랜잭션이 끝나면(커밋·롤백) 풀린다.
 # DB 잠금이라 API 인스턴스가 여러 개여도 통한다. 다른 이름의 업로드는 서로 기다리지 않는다.
+# 적재와 같은 세션(연결 하나)에서 잡는다. 잠금용 연결을 따로 잡으면 동시 업로드가 풀을 잠금용으로
+# 다 채우고 적재용 연결을 서로 기다리다 모두 시간 초과로 끝난다.
 _UPLOAD_LOCK = text("SELECT pg_advisory_xact_lock(hashtext(:key))")
 
 
@@ -111,38 +115,47 @@ async def upload_document(
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "10MB 이하 파일만 올릴 수 있습니다")
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "빈 파일입니다")
-    # 적재가 실패하면 저장소를 원래대로 되돌린다. 그러지 않으면 같은 이름의 정상 문서 원본이
-    # 실패한 파일로 덮인 채 남아 저장소와 색인(DB 청크)이 어긋난다.
+    # 적재가 실패하거나 중단되면 저장소를 원래대로 되돌린다. 그러지 않으면 같은 이름의 정상 문서 원본이
+    # 반영되지 않은 파일로 덮인 채 남아 저장소와 색인(DB 청크)이 어긋난다.
     key = f"uploads/{filename}"
-    # 원본 덮어쓰기 → 적재 → (실패 시) 복원이 끝날 때까지 같은 이름의 다른 업로드를 기다리게 한다.
-    # 겹치면 한쪽의 복원이 다른 쪽의 성공한 원본을 덮거나, 저장 순서와 DB 반영 순서가 달라진다.
-    async with c.maker() as lock:
-        await lock.execute(_UPLOAD_LOCK, {"key": key})
+    async with c.maker() as session:
+        # 원본 덮어쓰기 → 적재 → 커밋(실패 시 복원)이 끝날 때까지 같은 이름의 다른 업로드를 기다리게 한다.
+        # 겹치면 한쪽의 복원이 다른 쪽의 성공한 원본을 덮거나, 저장 순서와 DB 반영 순서가 달라진다.
+        await session.execute(_UPLOAD_LOCK, {"key": key})
         try:
             previous = await c.storage.get(key) if await c.storage.exists(key) else None
             stored = await c.storage.put(key, data, file.content_type)
         except NotImplementedError as e:  # 스텁 저장소(STORAGE_PROVIDER=supabase·azure_blob)
             raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, str(e)) from e
-        try:
-            async with c.maker() as session:
-                result = await ingest_bytes(
-                    session,
-                    c.embedder,
-                    source_uri=stored.uri,
-                    filename=filename,
-                    data=data,
-                    doc_type=doc_type,
-                )
-        except Exception as e:
+
+        async def restore() -> None:
             if previous is None:
                 await c.storage.delete(key)
             else:
                 await c.storage.put(key, previous, file.content_type)
+
+        try:
+            result = await ingest_bytes(
+                session,
+                c.embedder,
+                source_uri=stored.uri,
+                filename=filename,
+                data=data,
+                doc_type=doc_type,
+                commit=False,
+            )
+            await session.commit()  # 잠금도 여기서 풀린다
+        except BaseException as e:
+            # 요청 취소(서버 종료·연결 끊김)는 Exception이 아니다. 그때도 되돌려야 한다.
+            # 되돌리는 도중에 다시 취소돼도 끝까지 하도록 shield로 감싼다(아직 잠금을 쥐고 있다).
+            await asyncio.shield(restore())
             if isinstance(e, ValueError):
                 raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
             if isinstance(e, LLMError):
                 raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"임베딩 실패: {e}") from e
             raise
+    if result.status != "unchanged":
+        cache.faq_cache().clear()  # 검색 결과가 바뀌었으니 FAQ 답변 캐시를 비운다
     return {
         "document_id": result.document_id,
         "title": result.title,
