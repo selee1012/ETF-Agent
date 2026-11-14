@@ -73,6 +73,7 @@ vllm serve K-intelligence/Midm-2.0-Mini-Instruct \
 ### C. 자체 호스팅 + Azure OpenAI 폴백
 
 B 설정에 다음을 더한다. vLLM 호출이 실패하면 `FALLBACK_ALLOWED_INTENTS`에 든 의도만 Azure OpenAI로 다시 호출한다.
+제한하는 것은 프롬프트에 넣는 **자료**(문서 근거·ETF 데이터·공시)다. 허용된 의도의 자료만 있으면 폴백하며, 이때 질문 문장과 이전 대화는 그대로 함께 전송된다.
 
 ```dotenv
 FALLBACK_PROVIDER=openai_compat

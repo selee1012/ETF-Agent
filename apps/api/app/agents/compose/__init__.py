@@ -105,6 +105,8 @@ async def _write(
         task="answer",
         # 폴백 허용 의도(FALLBACK_ALLOWED_INTENTS) 판단용: 프롬프트에 자료를 넣은 수집 의도 전부.
         # 하나만 넘기면 'faq+disclosure' 질문의 공시 자료가 faq 허용만으로 폴백 엔드포인트로 나간다.
+        # 제한 대상은 자료다. 질문 문장과 이전 대화는 자료를 찾지 못한 의도의 것이어도 함께 나간다
+        # (공시를 못 찾은 'faq+disclosure' 질문은 faq로 판단한다).
         intent="+".join(r.agent for r in found if r.context),
         max_tokens=None if docs else DATA_ONLY_MAX_TOKENS,
     )
