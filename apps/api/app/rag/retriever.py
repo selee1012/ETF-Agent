@@ -65,6 +65,10 @@ async def hybrid_search(
     rows = await doc_repo.load_chunks(session, [i for _, i in scored])
     out = []
     for score, i in scored:
+        # 후보를 고른 뒤 문서가 다시 적재되면 그 청크는 지워지고 새 id로 들어간다. 없어진 후보는 건너뛴다
+        # (여기서 KeyError가 나면 선행 검색이 실패해 질문 전체가 안전 답변으로 끝난다).
+        if i not in rows:
+            continue
         chunk, title = rows[i]
         out.append(
             RetrievedChunk(
