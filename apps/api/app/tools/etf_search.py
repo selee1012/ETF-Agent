@@ -90,7 +90,7 @@ _CATEGORY = [
 ]
 
 
-REGIONS = ("국내", "해외")
+REGIONS = etf_repo.REGION_PREFIXES
 
 
 @dataclass(slots=True)
@@ -150,35 +150,43 @@ def parse_filters(text: str, known_indexes: list[str]) -> EtfFilters:
     return f
 
 
-async def search(session: AsyncSession, f: EtfFilters, limit: int = 10) -> list[EtfMaster]:
-    # 지역도 DB에서 거른다(LIMIT 뒤에 거르면 앞쪽 N건 밖의 일치 상품이 빠진다).
+def _repo_filters(f: EtfFilters) -> dict[str, object]:
     # 지역은 분류 앞머리('국내 주식 …')로만 알 수 있다. '부동산'·'원자재'처럼 지역 표기가 없는
     # 분류를 함께 물으면('국내 리츠') 지역을 확인할 수 없으므로 그 분류의 상품은 빼지 않는다.
-    return await etf_repo.search_etfs(
-        session,
-        category=f.category,
-        category_prefix=f.region,
-        unprefixed_ok=REGIONS if f.region and f.category else (),
-        underlying_index=f.underlying_index,
-        max_fee=f.max_fee,
-        min_fee=f.min_fee,
-        max_fee_exclusive=f.max_exclusive,
-        min_fee_exclusive=f.min_exclusive,
-        limit=limit,
-    )
+    return {
+        "category": f.category,
+        "category_prefix": f.region,
+        "unprefixed_ok": REGIONS if f.region and f.category else (),
+        "underlying_index": f.underlying_index,
+        "max_fee": f.max_fee,
+        "min_fee": f.min_fee,
+        "max_fee_exclusive": f.max_exclusive,
+        "min_fee_exclusive": f.min_exclusive,
+    }
+
+
+async def search(session: AsyncSession, f: EtfFilters, limit: int = 10) -> list[EtfMaster]:
+    # 지역도 DB에서 거른다(LIMIT 뒤에 거르면 앞쪽 N건 밖의 일치 상품이 빠진다).
+    return await etf_repo.search_etfs(session, **_repo_filters(f), limit=limit)
 
 
 async def unverifiable_note(session: AsyncSession, f: EtfFilters) -> str:
-    """조건에 쓰인 값(분류·총보수)이 비어 있어 확인하지 못하고 뺀 상품이 있으면 그 사실을 알리는 문장.
+    """값이 없어 조건을 판단하지 못하고 뺀 상품이 있으면 그 사실을 알리는 문장.
 
-    외부 수집으로 들어온 상품은 분류·총보수가 없다. 말없이 빼면 '조건에 맞는 상품은 이것뿐'으로 읽힌다.
+    외부 수집으로 들어온 상품은 분류·총보수가 없고, '부동산'·'원자재' 같은 분류는 지역을 알 수 없다.
+    말없이 빼면 '조건에 맞는 상품은 이것뿐'으로 읽힌다. 확인된 값으로 탈락한 상품은 세지 않는다.
     """
-    by_category, by_fee = bool(f.category or f.region), f.has_fee()
-    n = await etf_repo.count_missing(session, category=by_category, fee=by_fee)
+    n = await etf_repo.count_unverifiable(session, **_repo_filters(f))
     if not n:
         return ""
-    fields = "·".join(x for x, on in (("분류", by_category), ("총보수", by_fee)) if on)
-    return f"{fields} 정보가 없는 상품 {n}개는 조건을 확인할 수 없어 결과에서 뺐습니다."
+    used = (
+        ("지역", f.region),
+        ("분류", f.category),
+        ("기초지수", f.underlying_index),
+        ("총보수", f.has_fee()),
+    )
+    names = "·".join(name for name, on in used if on)
+    return f"조건({names}) 가운데 정보가 없어 확인할 수 없는 항목이 있는 상품 {n}개는 결과에서 뺐습니다."
 
 
 def region_unverified(f: EtfFilters, etfs: list[EtfMaster]) -> list[EtfMaster]:

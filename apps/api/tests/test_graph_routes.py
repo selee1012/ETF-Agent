@@ -1,7 +1,7 @@
 """의도별 경로: etf_info, faq, disclosure, high_risk, recommendation, out_of_scope (P1-AG-02~06)."""
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 
 from app.agents.graph import run_graph
 from app.agents.state import AgentDeps
@@ -213,21 +213,45 @@ async def test_truncated_search_result_says_more_exist(deps: AgentDeps) -> None:
 
 async def test_search_discloses_products_it_could_not_check(deps: AgentDeps) -> None:
     """분류·총보수가 없는(외부 수집) 상품은 조건 검색에서 빠진다. 뺐다는 사실을 결과에 밝힌다."""
-    row = {"ticker": "999999", "name": "수집된 미분류 ETF", "aliases": [], "source": "data_go_kr"}
+    rows = [
+        {"ticker": "999999", "name": "수집된 미분류 ETF", "aliases": [], "source": "data_go_kr"},
+        # 분류가 확인돼 '해외 주식'에서 이미 탈락한 상품. 총보수가 없어도 '확인 못 해 뺀 상품'이 아니다.
+        {
+            "ticker": "999998",
+            "name": "보수 없는 국내 채권 ETF",
+            "aliases": [],
+            "source": "data_go_kr",
+        },
+    ]
     async with deps.maker() as s:
-        await etf_repo.upsert_etfs(s, [row])
+        await etf_repo.upsert_etfs(s, rows)
+        await s.execute(
+            update(EtfMaster).where(EtfMaster.ticker == "999998").values(category="국내 채권")
+        )
         await s.commit()
     try:
         st = await ask(deps, "총보수 0.1% 이하 해외 주식 ETF 찾아줘")
         assert "수집된 미분류 ETF" not in st["answer"]
-        assert "분류·총보수 정보가 없는 상품 1개는 조건을 확인할 수 없어" in st["answer"]
+        assert (
+            "조건(지역·분류·총보수) 가운데 정보가 없어 확인할 수 없는 항목이 있는 상품 1개"
+            in st["answer"]
+        )
         none = await ask(deps, "총보수 0.001% 이하 ETF 찾아줘")
         assert "맞는 ETF가 없습니다" in none["answer"]
-        assert "총보수 정보가 없는 상품 1개" in none["answer"]
+        assert (
+            "조건(총보수) 가운데 정보가 없어 확인할 수 없는 항목이 있는 상품 2개" in none["answer"]
+        )
     finally:
         async with deps.maker() as s:
-            await s.execute(delete(EtfMaster).where(EtfMaster.ticker == "999999"))
+            await s.execute(delete(EtfMaster).where(EtfMaster.ticker.in_(["999999", "999998"])))
             await s.commit()
+
+
+async def test_region_only_search_discloses_products_without_region(deps: AgentDeps) -> None:
+    """'국내 ETF'는 분류에 지역 표기가 없는 상품(원자재·부동산 등 샘플 8개)을 뺀다. 전체 목록처럼 두지 않는다."""
+    st = await ask(deps, "국내 ETF 찾아줘")
+    assert "샘플 리츠부동산" not in st["answer"]
+    assert "조건(지역) 가운데 정보가 없어 확인할 수 없는 항목이 있는 상품 8개" in st["answer"]
 
 
 async def test_region_unverified_products_are_marked(deps: AgentDeps) -> None:

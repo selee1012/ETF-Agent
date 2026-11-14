@@ -4,7 +4,7 @@ from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import ColumnElement, Select, and_, false, func, not_, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,6 +58,44 @@ async def get_etfs(session: AsyncSession, tickers: Sequence[str]) -> list[EtfMas
     return sorted(rows, key=lambda r: order.get(r.ticker, 0))
 
 
+# 분류 앞머리로 쓰는 지역 표기. 지역은 분류('국내 주식 …')로만 알 수 있다.
+REGION_PREFIXES = ("국내", "해외")
+
+
+def _filter_terms(
+    *,
+    category: str | None,
+    category_prefix: str | None,
+    unprefixed_ok: Sequence[str],
+    underlying_index: str | None,
+    max_fee: Decimal | None,
+    min_fee: Decimal | None,
+    max_fee_exclusive: bool,
+    min_fee_exclusive: bool,
+) -> list[tuple[ColumnElement[bool], ColumnElement[bool]]]:
+    """조건마다 (만족 여부, 값이 없어 판단할 수 없는지) 쌍. 검색과 '확인 못 한 상품 수'가 같이 쓴다."""
+    cat, fee = EtfMaster.category, EtfMaster.total_expense_ratio
+    terms: list[tuple[ColumnElement[bool], ColumnElement[bool]]] = []
+    if category:
+        terms.append((cat.ilike(f"%{category}%"), cat.is_(None)))
+    if underlying_index:
+        idx = EtfMaster.underlying_index
+        terms.append((idx.ilike(f"%{underlying_index}%"), idx.is_(None)))
+    if category_prefix:
+        cond = cat.like(f"{category_prefix}%")
+        unknown = cat.is_(None)
+        if unprefixed_ok:
+            cond = or_(cond, and_(*(cat.not_like(f"{x}%") for x in unprefixed_ok)))
+        else:  # 지역 표기가 없는 분류('부동산'·'원자재')도 지역을 알 수 없다
+            unknown = or_(unknown, and_(*(cat.not_like(f"{x}%") for x in REGION_PREFIXES)))
+        terms.append((cond, unknown))
+    if max_fee is not None:
+        terms.append((fee < max_fee if max_fee_exclusive else fee <= max_fee, fee.is_(None)))
+    if min_fee is not None:
+        terms.append((fee > min_fee if min_fee_exclusive else fee >= min_fee, fee.is_(None)))
+    return terms
+
+
 async def search_etfs(
     session: AsyncSession,
     *,
@@ -78,21 +116,17 @@ async def search_etfs(
     unprefixed_ok를 주면, 그 접두어들 중 어느 것으로도 시작하지 않는 분류(지역 표기가 없는
     '부동산'·'원자재' 등)도 category_prefix 조건을 통과시킨다.
     """
-    stmt: Select[tuple[EtfMaster]] = select(EtfMaster)
-    if category:
-        stmt = stmt.where(EtfMaster.category.ilike(f"%{category}%"))
-    if underlying_index:
-        stmt = stmt.where(EtfMaster.underlying_index.ilike(f"%{underlying_index}%"))
-    if category_prefix:
-        cond = EtfMaster.category.like(f"{category_prefix}%")
-        if unprefixed_ok:
-            cond = or_(cond, and_(*(EtfMaster.category.not_like(f"{x}%") for x in unprefixed_ok)))
-        stmt = stmt.where(cond)
-    fee = EtfMaster.total_expense_ratio
-    if max_fee is not None:
-        stmt = stmt.where(fee < max_fee if max_fee_exclusive else fee <= max_fee)
-    if min_fee is not None:
-        stmt = stmt.where(fee > min_fee if min_fee_exclusive else fee >= min_fee)
+    terms = _filter_terms(
+        category=category,
+        category_prefix=category_prefix,
+        unprefixed_ok=unprefixed_ok,
+        underlying_index=underlying_index,
+        max_fee=max_fee,
+        min_fee=min_fee,
+        max_fee_exclusive=max_fee_exclusive,
+        min_fee_exclusive=min_fee_exclusive,
+    )
+    stmt: Select[tuple[EtfMaster]] = select(EtfMaster).where(*(cond for cond, _ in terms))
     if keyword:
         sim = func.greatest(
             func.similarity(EtfMaster.name, keyword), func.similarity(EtfMaster.alias_text, keyword)
@@ -103,16 +137,38 @@ async def search_etfs(
     return list((await session.scalars(stmt.limit(limit))).all())
 
 
-async def count_missing(session: AsyncSession, *, category: bool, fee: bool) -> int:
-    """분류·총보수 조건을 확인할 수 없는(값이 비어 있는) 상품 수. 조건 검색은 이런 상품을 결과에서 뺀다."""
-    conds = []
-    if category:
-        conds.append(EtfMaster.category.is_(None))
-    if fee:
-        conds.append(EtfMaster.total_expense_ratio.is_(None))
-    if not conds:
+async def count_unverifiable(
+    session: AsyncSession,
+    *,
+    category: str | None = None,
+    category_prefix: str | None = None,
+    unprefixed_ok: Sequence[str] = (),
+    underlying_index: str | None = None,
+    max_fee: Decimal | None = None,
+    min_fee: Decimal | None = None,
+    max_fee_exclusive: bool = False,
+    min_fee_exclusive: bool = False,
+) -> int:
+    """같은 조건의 search_etfs가 '값이 없어 판단할 수 없어서' 뺀 상품 수.
+
+    확인된 값으로 이미 탈락한 상품(분류가 '국내 채권'인데 '해외 주식'을 찾는 경우)은 세지 않는다.
+    즉 모든 조건이 '만족하거나 판단 불가'이고, 그중 하나 이상이 판단 불가인 상품이다.
+    """
+    terms = _filter_terms(
+        category=category,
+        category_prefix=category_prefix,
+        unprefixed_ok=unprefixed_ok,
+        underlying_index=underlying_index,
+        max_fee=max_fee,
+        min_fee=min_fee,
+        max_fee_exclusive=max_fee_exclusive,
+        min_fee_exclusive=min_fee_exclusive,
+    )
+    if not terms:
         return 0
-    stmt = select(func.count()).select_from(EtfMaster).where(or_(*conds))
+    met = [func.coalesce(cond, false()) for cond, _ in terms]  # 값이 없으면 비교 결과가 NULL이다
+    possible = and_(*(or_(m, unknown) for m, (_, unknown) in zip(met, terms, strict=True)))
+    stmt = select(func.count()).select_from(EtfMaster).where(possible, not_(and_(*met)))
     return int(await session.scalar(stmt) or 0)
 
 
