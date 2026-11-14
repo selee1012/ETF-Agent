@@ -9,6 +9,7 @@ from app.rag.ingest import ingest_bytes
 from app.repositories import documents as doc_repo
 from app.settings import REPO_ROOT
 from jobs.ingest import resolve_target
+from jobs.ingest.__main__ import main as ingest_cli
 
 
 def test_markdown_chunking_with_overlap() -> None:
@@ -54,3 +55,13 @@ def test_resolve_target_falls_back_to_repo_root() -> None:
 def test_resolve_target_rejects_missing_path() -> None:
     with pytest.raises(FileNotFoundError):
         resolve_target("no/such/dir")
+
+
+@pytest.mark.parametrize("arg", ["no/such/dir", "pyproject.toml", "migrations"])
+async def test_cli_fails_when_nothing_to_ingest(
+    arg: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """없는 경로, 지원하지 않는 파일, 문서가 없는 디렉터리는 조용히 성공하지 않고 1로 끝난다."""
+    monkeypatch.setattr("sys.argv", ["jobs.ingest", arg])
+    assert await ingest_cli() == 1
+    assert capsys.readouterr().out

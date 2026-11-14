@@ -34,7 +34,7 @@ def resolve_target(raw: str) -> Path:
 
 def collect_files(target: Path) -> list[Path]:
     if target.is_file():
-        return [target]
+        return [target] if target.suffix.lower() in SUPPORTED_SUFFIXES else []
     return sorted(p for p in target.rglob("*") if p.suffix.lower() in SUPPORTED_SUFFIXES)
 
 

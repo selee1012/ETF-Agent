@@ -6,8 +6,9 @@ import asyncio
 from app.db import dispose_engine, get_sessionmaker
 from app.llm import build_embedder
 from app.llm.base import LLMError
+from app.rag.ingest import SUPPORTED_SUFFIXES
 from app.settings import REPO_ROOT, get_settings
-from jobs.ingest import ingest_paths, resolve_target
+from jobs.ingest import collect_files, ingest_paths, resolve_target
 
 
 async def main() -> int:
@@ -25,6 +26,12 @@ async def main() -> int:
             f"→ 레포 루트({REPO_ROOT}) 기준 상대 경로나 컨테이너 안의 절대 경로를 주세요."
         )
         return 1
+    empty = [str(t) for t in targets if not collect_files(t)]
+    if empty:
+        print(
+            f"적재할 문서가 없습니다: {', '.join(empty)}\n→ 지원 형식: {', '.join(SUPPORTED_SUFFIXES)}"
+        )
+        return 1
 
     settings = get_settings()
     embedder = build_embedder(settings)
@@ -40,6 +47,9 @@ async def main() -> int:
         print(
             f"임베딩 실패: {e}\n→ LLM_API_KEY·EMBEDDING_MODEL({settings.embedding_model})·네트워크를 확인하세요."
         )
+        return 1
+    except ValueError as e:  # 읽을 수 없는 문서(손상된 PDF, 빈 본문 등)
+        print(f"문서를 읽을 수 없습니다: {e}")
         return 1
     finally:
         await dispose_engine()
