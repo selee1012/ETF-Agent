@@ -197,3 +197,13 @@ def test_strip_citations_and_cited_formats() -> None:
     assert strip_citations(text) == "괴리율은 가격 차이입니다. 확인이 필요합니다.\n- 항목"
     assert cited(text, 4) == [1, 2, 3, 4]
     assert cited("인용 없음", 2) == [1, 2]
+
+
+async def test_truncated_search_result_says_more_exist(deps: AgentDeps) -> None:
+    """10건으로 자른 목록을 전체 건수처럼 표시하지 않는다(샘플 ETF 20개가 모두 일치하는 조건)."""
+    st = await ask(deps, "총보수 5% 이하 ETF 찾아줘")
+    assert "10건만 표시" in st["answer"] and "더 있습니다" in st["answer"]
+    assert st["answer"].count("\n| 샘플") == 10
+
+    small = await ask(deps, "총보수 0.05% 이하 ETF 찾아줘")
+    assert "건만 표시" not in small["answer"]

@@ -8,6 +8,7 @@ from app.agents.state import AgentDeps, AgentResult, GraphState, Source
 from app.tools import compare, etf_search, price_lookup
 
 NAME = "etf_info"
+SEARCH_LIMIT = 10
 
 
 async def run(state: GraphState, deps: AgentDeps) -> AgentResult:
@@ -39,7 +40,10 @@ async def run(state: GraphState, deps: AgentDeps) -> AgentResult:
                         "'총보수 0.1% 이하 해외 주식 ETF'처럼 조건을 말씀해 주세요."
                     ),
                 )
-            etfs = await etf_search.search(session, filters)
+            # 한 건 더 읽어 잘렸는지 안다. 잘린 목록을 '검색 결과 10건'이라고 하면 전체가 10건으로 읽힌다.
+            etfs = await etf_search.search(session, filters, limit=SEARCH_LIMIT + 1)
+            more = len(etfs) > SEARCH_LIMIT
+            etfs = etfs[:SEARCH_LIMIT]
             if not etfs:
                 return AgentResult(
                     agent=NAME,
@@ -48,6 +52,11 @@ async def run(state: GraphState, deps: AgentDeps) -> AgentResult:
                 )
             table = compare.list_table(etfs)
             title = f"검색 결과({filters.describe()}) {len(etfs)}건"
+            if more:
+                title = (
+                    f"검색 결과({filters.describe()}) 총보수가 낮은 순으로 {len(etfs)}건만 표시"
+                    "(조건에 맞는 상품이 더 있습니다)"
+                )
             dates, as_of = [], None
 
     if len(dates) > 1:
