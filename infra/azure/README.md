@@ -2,7 +2,7 @@
 
 로컬은 Docker(Postgres·OpenAI API 또는 fake)로 개발하고, 고도화·배포 버전은 **Azure**에 둔다.
 DB만 비용을 줄이려고 **Supabase 서울 리전**을 쓴다(아래 DB 절).
-코드 변경 없이 **환경변수만** 바꿔 옮기는 것이 원칙이다(공통 규칙 3). 아직 스텁인 어댑터는 아래 표에 표시했다.
+코드 변경 없이 **환경변수만** 바꿔 옮기는 것이 원칙이다. 아직 스텁인 어댑터는 아래 표에 표시했다.
 
 ## AWS → Azure 대응표
 
@@ -127,4 +127,5 @@ API는 어느 방식이든 **Bearer JWT를 검증**한다(`app/auth/base.py`의 
 
 - `APP_ENV=prod` — `AUTH_PROVIDER=local`이면 `LOCAL_JWT_SECRET`이 없을 때 기동하지 않는다.
 - `CORS_ORIGINS` — Static Web Apps 주소.
-- 트레이서·운영 화면 인증(`TRACER`, `ADMIN_AUTH`)은 루트 README의 확장 지점 참고.
+- `TRACER` — `pg`만 동작한다. `langfuse`는 스텁이라 고르면 API가 기동하지 않는다.
+- `ADMIN_AUTH` — `local`(JWT의 `role=admin`)만 동작한다. `cf_access`(Cloudflare Access)는 스텁이라 운영 API가 501로 응답한다.
