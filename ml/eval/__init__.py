@@ -1,7 +1,7 @@
 """오프라인 평가: data/eval-sets를 읽어 그래프를 직접 실행하고 지표를 낸다. # P1-OP-03
 
 지표
-- answer_accuracy: 골든셋 기대 키워드·수치가 모두 답변에 포함된 비율
+- answer_accuracy: 골든셋 기대 키워드·수치가 모두 답변에 있고 의도도 일치한 비율
 - intent_accuracy: 의도 집합 일치 비율
 - entity_f1: ETF명 인식 마이크로 P/R/F1
 - violation_recall: 위반 문장 탐지 재현율(가드 룰, 선택적으로 검증 모델), 오탐률 함께

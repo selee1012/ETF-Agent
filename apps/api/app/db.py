@@ -27,7 +27,8 @@ def get_engine() -> AsyncEngine:
         pool_size=5,
         max_overflow=5,
         pool_recycle=1800,
-        # DB 오류 메시지에 바인드 값(대화 내용·검색 질의)이 실려 로그로 나가지 않게 한다.
+        # SQLAlchemy가 DB 오류 메시지에 붙이는 바인드 값 목록(대화 내용·검색 질의)을 뺀다.
+        # 드라이버가 주는 DETAIL(중복 키 값 등)까지 가리지는 않는다.
         hide_parameters=True,
     )
 

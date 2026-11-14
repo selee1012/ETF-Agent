@@ -43,7 +43,7 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
       STORAGE_LOCAL_DIR: /data/storage
-    # 개발 모드: 레포 전체를 마운트하고 app 디렉터리 변경 시 자동 리로드
+    # 개발 모드: 레포 전체를 마운트하고 app·prompts 디렉터리 변경 시 자동 리로드
     command:
       - uvicorn
       - app.main:create_app
