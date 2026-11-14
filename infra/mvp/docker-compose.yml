@@ -23,6 +23,9 @@ services:
     ports:
       # 외부 노출은 cloudflared가 담당하므로 호스트 루프백에만 바인딩한다.
       - "127.0.0.1:8000:8000"
+    extra_hosts:
+      # 호스트에서 도는 OpenAI 호환 서버(직접 띄운 vLLM 등) 접근용(리눅스 포함)
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
