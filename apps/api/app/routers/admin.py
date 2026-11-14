@@ -110,8 +110,11 @@ async def upload_document(
     # 적재가 실패하면 저장소를 원래대로 되돌린다. 그러지 않으면 같은 이름의 정상 문서 원본이
     # 실패한 파일로 덮인 채 남아 저장소와 색인(DB 청크)이 어긋난다.
     key = f"uploads/{filename}"
-    previous = await c.storage.get(key) if await c.storage.exists(key) else None
-    stored = await c.storage.put(key, data, file.content_type)
+    try:
+        previous = await c.storage.get(key) if await c.storage.exists(key) else None
+        stored = await c.storage.put(key, data, file.content_type)
+    except NotImplementedError as e:  # 스텁 저장소(STORAGE_PROVIDER=supabase·azure_blob)
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, str(e)) from e
     try:
         async with c.maker() as session:
             result = await ingest_bytes(

@@ -93,7 +93,7 @@ make down                        # 컨테이너 종료, 볼륨 유지
 
 ## 현재 범위와 배포
 
-로컬 실행이 중심인 MVP입니다. 배포 구성은 Azure와 Supabase를 계획하고 있으며, 실제 로그인 수단 및 Supabase/Entra 인증, Azure Blob 저장소, Cloudflare Access, Langfuse 어댑터는 아직 구현이 필요합니다. 자세한 구성은 [Azure 안내](infra/azure/README.md)를 참고하세요.
+로컬 실행이 중심인 MVP입니다. 배포 구성은 Azure와 Supabase를 계획하고 있으며, 실제 로그인 수단 및 Supabase/Entra 인증, Supabase·Azure Blob 저장소, Cloudflare Access, Langfuse 어댑터는 아직 구현이 필요합니다. 구현 전인 인증·저장소를 고르면 해당 요청이 501로 응답하고, Langfuse 트레이서를 고르면 API가 기동하지 않습니다. 자세한 구성은 [Azure 안내](infra/azure/README.md)를 참고하세요.
 
 가드의 검증 모델을 호출하지 못하거나 판정 결과를 두 번 연속 해석하지 못하면 답변을 내보내지 않고 안전 답변으로 대체합니다. 캐시는 프로세스별 메모리에 있으므로 별도 프로세스의 데이터 적재나 다른 API 인스턴스에 캐시 삭제가 전파되지 않습니다. 로컬에서는 `make restart`로 해결하고, API 인스턴스를 여러 개 띄우는 배포에서는 공유 캐시(Redis 등)가 필요합니다.
 

@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 from httpx import AsyncClient
 
+from app.storage.azure_blob import AzureBlobStorage
 from tests.sse import parse_sse
 
 
@@ -97,3 +98,13 @@ async def test_failed_reupload_keeps_previous_original(
     )
     assert empty.status_code == 422  # 본문이 비어 적재 실패
     assert await app.state.container.storage.get("uploads/keep.md") == good
+
+
+async def test_upload_with_stub_storage_returns_501(
+    client: AsyncClient, app: FastAPI, admin_headers: dict
+) -> None:
+    app.state.container.storage = AzureBlobStorage()
+    files = {"file": ("stub.md", DOC.encode(), "text/markdown")}
+    resp = await client.post("/admin/documents", files=files, headers=admin_headers)
+    assert resp.status_code == 501, resp.text
+    assert "구현하지 않았다" in resp.json()["detail"]
