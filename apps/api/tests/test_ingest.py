@@ -1,5 +1,7 @@
 """ingest: 문단 청킹(겹침), 재적재 시 갱신 (P1-DA-03)."""
 
+from pathlib import Path
+
 import pytest
 
 from app.db import get_sessionmaker
@@ -47,9 +49,14 @@ async def test_reingest_updates_document() -> None:
     assert sorted(contents) == ["## x\nsecond", "## y\nthird"]
 
 
-def test_resolve_target_falls_back_to_repo_root() -> None:
-    """실행 위치(apps/api)에 없는 레포 기준 경로도 찾는다(make ingest ARGS="data/samples/docs")."""
+def test_resolve_target_prefers_repo_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """레포 기준 경로를 실행 위치와 무관하게 찾는다(make ingest ARGS="data/samples/docs")."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "README.md").write_text("# cwd")
     assert resolve_target("data/samples/docs") == REPO_ROOT / "data/samples/docs"
+    assert resolve_target("README.md") == REPO_ROOT / "README.md"  # 실행 위치의 같은 이름보다 먼저
+    (tmp_path / "only-here.md").write_text("# x")
+    assert resolve_target("only-here.md") == Path("only-here.md")
 
 
 def test_resolve_target_rejects_missing_path() -> None:
@@ -57,11 +64,23 @@ def test_resolve_target_rejects_missing_path() -> None:
         resolve_target("no/such/dir")
 
 
-@pytest.mark.parametrize("arg", ["no/such/dir", "pyproject.toml", "migrations"])
+@pytest.mark.parametrize("kind", ["missing", "unsupported_file", "empty_dir", "unreadable"])
 async def test_cli_fails_when_nothing_to_ingest(
-    arg: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    kind: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """없는 경로, 지원하지 않는 파일, 문서가 없는 디렉터리는 조용히 성공하지 않고 1로 끝난다."""
-    monkeypatch.setattr("sys.argv", ["jobs.ingest", arg])
+    """없는 경로, 지원하지 않는 파일, 문서가 없는 디렉터리, 읽을 수 없는 문서는 1로 끝난다."""
+    (tmp_path / "notes.toml").write_text("x = 1")
+    (tmp_path / "empty").mkdir()
+    (tmp_path / "broken.pdf").write_bytes(b"not a pdf")
+    target = {
+        "missing": tmp_path / "nope",
+        "unsupported_file": tmp_path / "notes.toml",
+        "empty_dir": tmp_path / "empty",
+        "unreadable": tmp_path / "broken.pdf",
+    }[kind]
+    monkeypatch.setattr("sys.argv", ["jobs.ingest", str(target)])
     assert await ingest_cli() == 1
-    assert capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert out
+    if kind == "unreadable":
+        assert "broken.pdf" in out

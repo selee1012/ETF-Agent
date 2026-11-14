@@ -48,8 +48,8 @@ async def main() -> int:
             f"임베딩 실패: {e}\n→ LLM_API_KEY·EMBEDDING_MODEL({settings.embedding_model})·네트워크를 확인하세요."
         )
         return 1
-    except ValueError as e:  # 읽을 수 없는 문서(손상된 PDF, 빈 본문 등)
-        print(f"문서를 읽을 수 없습니다: {e}")
+    except ValueError as e:  # 읽을 수 없는 문서(손상된 PDF, 빈 본문 등). 이 파일에서 멈춘다.
+        print(f"문서를 적재하지 못해 중단합니다: {e}")
         return 1
     finally:
         await dispose_engine()

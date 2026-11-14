@@ -19,17 +19,17 @@ def source_uri_for(path: Path) -> str:
 
 
 def resolve_target(raw: str) -> Path:
-    """없는 상대 경로는 레포 루트 기준으로 다시 찾는다. 그래도 없으면 FileNotFoundError.
+    """상대 경로는 레포 루트 기준으로 먼저 찾고, 없으면 실행 위치 기준으로 찾는다. 없으면 FileNotFoundError.
 
     make ingest는 컨테이너의 apps/api에서 실행되므로 `data/samples/docs` 같은 레포 기준 경로가
     그대로는 없는 경로가 된다. 없는 경로는 빈 목록이 되어 아무것도 적재하지 않고 성공으로 끝났다.
     """
     path = Path(raw)
-    if not path.exists() and not path.is_absolute():
-        path = REPO_ROOT / path
-    if not path.exists():
-        raise FileNotFoundError(raw)
-    return path
+    candidates = [path] if path.is_absolute() else [REPO_ROOT / path, path]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(raw)
 
 
 def collect_files(target: Path) -> list[Path]:
@@ -49,8 +49,8 @@ async def ingest_paths(
     results = []
     for path in collect_files(target):
         async with maker() as session:
-            results.append(
-                await ingest_bytes(
+            try:
+                result = await ingest_bytes(
                     session,
                     embedder,
                     source_uri=source_uri_for(path),
@@ -59,5 +59,7 @@ async def ingest_paths(
                     doc_type=doc_type,
                     force=force,
                 )
-            )
+            except ValueError as e:  # 읽을 수 없는 문서. 어느 파일인지 알 수 있게 경로를 붙인다.
+                raise ValueError(f"{path}: {e}") from e
+            results.append(result)
     return results
