@@ -14,9 +14,9 @@ def build_tracer(settings: Settings, maker: async_sessionmaker[AsyncSession]) ->
 
             return PgTracer(maker)
         case TracerKind.LANGFUSE:
-            from app.observability.langfuse_tracer import LangfuseTracer
-
-            return LangfuseTracer()
+            # 스텁(langfuse_tracer.py)을 그대로 끼우면 요청마다 record()가 실패하고 채팅 서비스가 이를
+            # 삼켜, 채팅은 되는데 트레이스만 조용히 빠진다. 폴백 설정 누락처럼 기동할 때 막는다.
+            raise ValueError("TRACER=langfuse는 아직 구현되지 않았습니다. TRACER=pg를 사용하세요")
 
 
 __all__ = ["TraceRecord", "Tracer", "build_tracer"]

@@ -78,5 +78,5 @@ async def test_metrics_hidden_outside_local_without_token(
 def test_unimplemented_tracer_fails_at_startup(settings: Settings) -> None:
     """스텁 트레이서로 기동하면 채팅은 되고 트레이스만 조용히 빠지므로 조립 단계에서 막는다."""
     stub = settings.model_copy(update={"tracer": Tracer.LANGFUSE})
-    with pytest.raises(NotImplementedError, match="TRACER=pg"):
+    with pytest.raises(ValueError, match="TRACER=pg"):
         build_tracer(stub, get_sessionmaker())
