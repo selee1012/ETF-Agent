@@ -38,7 +38,8 @@ services:
       - path: ../../.env.local
         required: false
     environment:
-      # 셸에서 덮어쓸 수 있게 한다(예: LLM_PROVIDER=fake make up). 비우면 settings 기본값.
+      # 이 둘만 셸에서 덮어쓸 수 있다(예: LLM_PROVIDER=fake make up). 그 밖의 값은 env_file에서 온다.
+      # 셸에 값이 없으면 --env-file(.env, .env.local)의 값, 거기도 없으면 settings 기본값이 쓰인다.
       LLM_PROVIDER: ${LLM_PROVIDER:-}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
       STORAGE_LOCAL_DIR: /data/storage

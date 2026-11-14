@@ -64,7 +64,7 @@ make down                        # 컨테이너 종료, 볼륨 유지
 
 ## 설정
 
-실행 스크립트는 비어 있는 `.env` 설정을 채우고, 실제 모델 실행 시 `.env.local`을 사용합니다. 일반적으로 셸 환경변수, `.env.local`, `.env` 순으로 우선합니다. 설정의 전체 목록과 설명은 [`.env.example`](.env.example), 기본값과 검증 규칙은 [`settings.py`](apps/api/app/settings.py)를 참고하세요.
+실행 스크립트는 비어 있는 `.env` 설정을 채웁니다. `.env.local`이 있으면 같은 이름의 `.env` 값을 덮으며, `run-fake.sh`로 실행할 때도 읽힙니다(모델·임베딩 공급자만 fake로 바뀝니다). 컨테이너에는 두 파일의 값이 들어가므로 설정은 파일에서 바꾸세요. 셸 환경변수로 덮을 수 있는 것은 `LLM_PROVIDER`, `EMBEDDING_PROVIDER`(또는 `make up PROVIDER=fake`)뿐입니다. 설정의 전체 목록과 설명은 [`.env.example`](.env.example), 기본값과 검증 규칙은 [`settings.py`](apps/api/app/settings.py)를 참고하세요.
 
 | 설정 | 용도 |
 | --- | --- |
