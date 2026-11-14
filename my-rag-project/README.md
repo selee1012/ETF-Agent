@@ -44,7 +44,7 @@ cp .env.example .env        # OPENAI_API_KEY=발급받은키 로 수정
 streamlit run app.py
 ```
 
-Python 3.10 이상이 필요하다. 브라우저가 열리면(기본 http://localhost:8501) 아래 순서로 확인한다.
+Python 3.11 이상이 필요하다(고정한 streamlit·langchain-core·pymupdf 버전이 3.11부터 지원한다). 브라우저가 열리면(기본 http://localhost:8501) 아래 순서로 확인한다.
 
 1. 사이드바에서 PDF를 업로드한다(없으면 `sample_docs/sample_etf_guide.pdf`).
 2. "문서 분석 완료" 메시지가 뜨면 하단 채팅창에 질문한다.
