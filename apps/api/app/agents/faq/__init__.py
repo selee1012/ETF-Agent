@@ -22,6 +22,9 @@ _FOLLOWUP = re.compile(
     r"^(그럼|그러면|그럴|그건|그거|그게|그것|이건|이거|이게|저건|아까|방금|위에|앞에서|그래서|왜)"
 )
 _SHORT_QUERY = 12
+# 스스로 주제를 가진 뜻풀이 질문('ETF가 뭐야?', '괴리율이란?'). 짧아도 앞 대화의 후속 질문이 아니다.
+# 직전 질문을 붙여 검색하면 앞 주제의 문서가 섞여, 묻지 않은 상품 이야기로 답이 흘러간다.
+_DEFINITION = re.compile(r"(뭐야|뭐예요|뭐에요|뭔가요|뭐지|뭔지|무엇|이란|란\?|뜻|의미|정의)")
 
 
 def cited(text: str, n: int) -> list[int]:
@@ -47,9 +50,11 @@ def retrieval_query(state: GraphState) -> str:
         ),
         "",
     )
-    if prev and (len(q) <= _SHORT_QUERY or _FOLLOWUP.search(q)):
-        return f"{prev[:200]} {q}"
-    return q
+    if not prev:
+        return q
+    refers_back = bool(_FOLLOWUP.search(q))
+    short = len(q) <= _SHORT_QUERY and not _DEFINITION.search(q)
+    return f"{prev[:200]} {q}" if refers_back or short else q
 
 
 def cache_key(state: GraphState) -> str | None:

@@ -113,6 +113,9 @@ async def test_faq_cache_is_not_used_when_combined_with_other_intents(
         ("그럼 세금은?", True),
         ("그건 왜 그래?", True),
         ("세금은?", True),  # 짧은 질문
+        ("그게 뭐야?", True),  # 앞 대화를 가리키는 뜻풀이
+        ("ETF가 뭐야?", False),  # 짧아도 스스로 주제를 가진 뜻풀이 질문
+        ("괴리율이란?", False),
         ("ETF 분배금 지급 일정은 어떻게 되나요?", False),
     ],
 )
